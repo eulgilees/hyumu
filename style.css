@@ -434,6 +434,37 @@ button {
   box-sizing: border-box;
 }
 
+.corner-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 8px 10px;
+  background: #f8f9fb;
+  border-radius: 6px;
+}
+
+.corner-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.corner-filter-group-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+}
+
+.corner-filter-check {
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
 .date-label {
   display: inline-block;
   font-size: 10px;

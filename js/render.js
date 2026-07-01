@@ -102,7 +102,7 @@ Hyumu.Render = (function () {
 
   function renderEmployeeScreen(container, doc, handlers) {
     const rows = doc.employees.map((emp) => `
-      <div class="employee-card" data-id="${emp.id}">
+      <div class="employee-card" data-id="${emp.id}" data-corner="${esc(emp.corner || '')}">
         <div class="employee-row">
           <input type="text" class="emp-name" value="${esc(emp.name)}" placeholder="이름" data-id="${emp.id}">
           <button type="button" class="btn-remove-emp" data-id="${emp.id}">삭제</button>
@@ -151,25 +151,44 @@ Hyumu.Render = (function () {
         <div class="employee-search-row">
           <input type="text" id="employee-search" placeholder="이름으로 검색...">
         </div>
+        <div class="corner-filter-row">
+          <span class="hint">코너로 조회</span>
+          ${Object.entries(Model.CORNER_GROUPS).map(([group, corners]) => `
+            <div class="corner-filter-group">
+              <span class="corner-filter-group-label">${esc(group)}</span>
+              ${corners.map((c) => `
+                <label class="corner-filter-check">
+                  <input type="checkbox" class="corner-filter" value="${esc(c)}">
+                  ${esc(c)}
+                </label>
+              `).join('')}
+            </div>
+          `).join('')}
+        </div>
         <div id="employee-list">${rows || '<p class="hint">아직 등록된 직원이 없습니다.</p>'}</div>
         <p id="employee-search-empty" class="hint" style="display:none;">검색 결과가 없습니다.</p>
         <button type="button" id="btn-add-employee" class="btn-primary">+ 직원 추가</button>
       </section>
     `;
 
-    container.querySelector('#employee-search').addEventListener('input', (e) => {
-      const term = e.target.value.trim().toLowerCase();
+    function applyEmployeeFilter() {
+      const term = container.querySelector('#employee-search').value.trim().toLowerCase();
+      const checkedCorners = Array.from(container.querySelectorAll('.corner-filter:checked')).map((cb) => cb.value);
       const cards = container.querySelectorAll('.employee-card');
       let visibleCount = 0;
       cards.forEach((card) => {
         const nameInput = card.querySelector('.emp-name');
-        const match = !term || nameInput.value.toLowerCase().includes(term);
+        const nameMatch = !term || nameInput.value.toLowerCase().includes(term);
+        const cornerMatch = checkedCorners.length === 0 || checkedCorners.includes(card.dataset.corner);
+        const match = nameMatch && cornerMatch;
         card.style.display = match ? '' : 'none';
         if (match) visibleCount++;
       });
       const emptyMsg = container.querySelector('#employee-search-empty');
-      if (emptyMsg) emptyMsg.style.display = (term && visibleCount === 0) ? '' : 'none';
-    });
+      if (emptyMsg) emptyMsg.style.display = ((term || checkedCorners.length > 0) && visibleCount === 0) ? '' : 'none';
+    }
+    container.querySelector('#employee-search').addEventListener('input', applyEmployeeFilter);
+    container.querySelectorAll('.corner-filter').forEach((cb) => cb.addEventListener('change', applyEmployeeFilter));
     container.querySelector('#btn-add-employee').addEventListener('click', () => handlers.onAddEmployee());
     container.querySelectorAll('.btn-remove-emp').forEach((btn) =>
       btn.addEventListener('click', () => handlers.onRemoveEmployee(btn.dataset.id))
@@ -186,7 +205,11 @@ Hyumu.Render = (function () {
       select.addEventListener('change', () => handlers.onUpdateShiftPreference(select.dataset.id, select.value))
     );
     container.querySelectorAll('.emp-corner').forEach((select) =>
-      select.addEventListener('change', () => handlers.onUpdateCorner(select.dataset.id, select.value))
+      select.addEventListener('change', () => {
+        select.closest('.employee-card').dataset.corner = select.value;
+        handlers.onUpdateCorner(select.dataset.id, select.value);
+        applyEmployeeFilter();
+      })
     );
     container.querySelectorAll('.emp-date-input').forEach((input) =>
       input.addEventListener('change', () => {
