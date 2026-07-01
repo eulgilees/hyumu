@@ -72,7 +72,8 @@ Hyumu.Storage = (function () {
       name: e.name,
       recurringOff: [...e.recurringOff],
       specificOff: [],
-      shiftPreference: e.shiftPreference || 'ANY'
+      shiftPreference: e.shiftPreference || 'ANY',
+      corner: e.corner || ''
     }));
   }
 
