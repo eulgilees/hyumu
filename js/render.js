@@ -444,13 +444,27 @@ Hyumu.Render = (function () {
         }
         return `<td class="cal-cell ${sourceClass}${shiftClass}${weekendClass}${confClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}">${text}</td>`;
       }).join('');
-      return `<tr><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${offCount}</td><td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td></tr>`;
+      return `<tr class="cal-row" data-corner="${esc(emp.corner || '')}"><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${offCount}</td><td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td></tr>`;
     }).join('');
 
     container.innerHTML = `
       <section class="screen screen-calendar">
         <h2>결과 캘린더</h2>
         ${banner}
+        <div class="corner-filter-row">
+          <span class="hint">코너로 조회</span>
+          ${Object.entries(Model.CORNER_GROUPS).map(([group, corners]) => `
+            <div class="corner-filter-group">
+              <span class="corner-filter-group-label">${esc(group)}</span>
+              ${corners.map((c) => `
+                <label class="corner-filter-check">
+                  <input type="checkbox" class="cal-corner-filter" value="${esc(c)}">
+                  ${esc(c)}
+                </label>
+              `).join('')}
+            </div>
+          `).join('')}
+        </div>
         <div class="legend">
           <span class="legend-item"><span class="swatch cell-base"></span>고정휴무</span>
           <span class="legend-item"><span class="swatch cell-manual"></span>수동수정</span>
@@ -479,6 +493,12 @@ Hyumu.Render = (function () {
         handlers.onToggleCell(cell.dataset.emp, cell.dataset.date, cell.dataset.status, cell.dataset.shift || null);
       });
     });
+    container.querySelectorAll('.cal-corner-filter').forEach((cb) => cb.addEventListener('change', () => {
+      const checkedCorners = Array.from(container.querySelectorAll('.cal-corner-filter:checked')).map((c) => c.value);
+      container.querySelectorAll('.cal-row').forEach((row) => {
+        row.style.display = (checkedCorners.length === 0 || checkedCorners.includes(row.dataset.corner)) ? '' : 'none';
+      });
+    }));
     container.querySelector('#btn-regenerate').addEventListener('click', () => handlers.onRegenerate());
     container.querySelector('#btn-reset-manual').addEventListener('click', () => handlers.onResetManual());
     container.querySelector('#btn-print').addEventListener('click', () => window.print());
