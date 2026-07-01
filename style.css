@@ -492,13 +492,15 @@ button {
   min-width: 30px;
 }
 
-.name-col {
+.calendar-table th.name-col,
+.calendar-table td.name-col {
   text-align: left !important;
   padding-left: 10px !important;
   position: sticky;
   left: 0;
   background: #fff;
   min-width: 100px;
+  white-space: nowrap;
   font-weight: 600;
 }
 
@@ -628,6 +630,15 @@ button {
 
 .cal-cell:hover {
   filter: brightness(0.95);
+}
+
+.cell-locked {
+  cursor: not-allowed;
+  position: relative;
+}
+
+.cell-locked:hover {
+  filter: none;
 }
 
 .cell-base { background: #dfe6ee; color: #2d3e50; }

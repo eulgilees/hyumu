@@ -542,6 +542,8 @@ Hyumu.Render = (function () {
         const redClass = Model.isRedDay(d) ? ' red-day-col' : '';
         const confClass = conflictEmpDay.has(`${emp.id}|${d}`) ? ' conflict-cell' : '';
         const sourceClass = SOURCE_CLASS[cell.source] || 'cell-auto';
+        const isPersonalLock = cell.status === 'OFF' && cell.source === 'BASE' && emp.specificOff.includes(d);
+        const lockClass = isPersonalLock ? ' cell-locked' : '';
         let text = '';
         let shiftClass = '';
         if (cell.status === 'OFF') {
@@ -553,7 +555,7 @@ Hyumu.Render = (function () {
           if (cell.shift === 'MORNING') morningCount++;
           else if (cell.shift === 'AFTERNOON') afternoonCount++;
         }
-        return `<td class="cal-cell ${sourceClass}${shiftClass}${weekendClass}${redClass}${confClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}">${text}</td>`;
+        return `<td class="cal-cell ${sourceClass}${shiftClass}${weekendClass}${redClass}${confClass}${lockClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}" data-locked="${isPersonalLock ? '1' : '0'}">${text}</td>`;
       }).join('');
       return `<tr class="cal-row" data-corners="${esc(JSON.stringify(Model.employeeCorners(emp)))}"><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${offCount}</td><td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td></tr>`;
     }).join('');
@@ -602,6 +604,7 @@ Hyumu.Render = (function () {
 
     container.querySelectorAll('.cal-cell').forEach((cell) => {
       cell.addEventListener('click', () => {
+        if (cell.dataset.locked === '1') return;
         handlers.onToggleCell(cell.dataset.emp, cell.dataset.date, cell.dataset.status, cell.dataset.shift || null);
       });
     });
