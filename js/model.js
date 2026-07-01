@@ -76,6 +76,30 @@ Hyumu.Model = (function () {
     '2027-01-01': '신정'
   };
 
+  const RECURRING_FIXED_HOLIDAYS = [
+    { md: '07-17', name: '제헌절', fromYear: 2026 }
+  ];
+
+  function addRecurringHolidays(holidays, endYear) {
+    RECURRING_FIXED_HOLIDAYS.forEach(({ md, name, fromYear }) => {
+      for (let y = fromYear; y <= endYear; y++) {
+        const dateStr = `${y}-${md}`;
+        holidays[dateStr] = name;
+        const wd = weekdayOf(dateStr);
+        if (wd === 0 || wd === 6) {
+          let sub = new Date(y, Number(md.split('-')[0]) - 1, Number(md.split('-')[1]));
+          do {
+            sub.setDate(sub.getDate() + 1);
+          } while (sub.getDay() === 0 || sub.getDay() === 6 || holidays[dateISO(sub.getFullYear(), sub.getMonth() + 1, sub.getDate())]);
+          holidays[dateISO(sub.getFullYear(), sub.getMonth() + 1, sub.getDate())] = '대체공휴일';
+        }
+      }
+    });
+    return holidays;
+  }
+
+  addRecurringHolidays(KR_HOLIDAYS, 2035);
+
   function holidayName(dateStr) {
     return KR_HOLIDAYS[dateStr] || null;
   }
