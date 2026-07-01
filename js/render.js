@@ -546,9 +546,7 @@ Hyumu.Render = (function () {
         let shiftClass = '';
         if (cell.status === 'OFF') {
           offCount++;
-          text = (cell.source === 'BASE' && emp.specificOff.includes(d))
-            ? Model.LEAVE_TYPES[Model.leaveTypeOf(emp, d)]
-            : '휴';
+          text = '휴';
         } else {
           text = Model.SHIFT_LABELS[cell.shift] || '';
           shiftClass = cell.shift === 'MORNING' ? ' shift-morning' : cell.shift === 'AFTERNOON' ? ' shift-afternoon' : '';
