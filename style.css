@@ -241,11 +241,9 @@ button {
 }
 
 .emp-date-input {
-  padding: 10px 12px;
+  padding: 6px 8px;
   border: 1px solid #ccc;
   border-radius: 4px;
-  font-size: 18px;
-  min-height: 44px;
 }
 
 .btn-add-date {
