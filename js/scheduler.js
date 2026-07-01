@@ -90,7 +90,11 @@ Hyumu.Scheduler = (function () {
     const effectiveCap = rules.minRestPerWeekWindow ? Math.min(cap, 6) : cap;
     const shiftMinTotal = (rules.minMorningStaff || 0) + (rules.minAfternoonStaff || 0);
 
-    const cornerMinStaff = rules.minStaffByCorner || {};
+    const cornerShiftMin = rules.minStaffByCorner || {};
+    const cornerMinStaff = {};
+    Object.entries(cornerShiftMin).forEach(([corner, req]) => {
+      cornerMinStaff[corner] = (req.morning || 0) + (req.afternoon || 0);
+    });
     const cornerTotal = {};
     employees.forEach((emp) => {
       if (emp.corner) cornerTotal[emp.corner] = (cornerTotal[emp.corner] || 0) + 1;
@@ -215,7 +219,9 @@ Hyumu.Scheduler = (function () {
   function assignShifts(schedule, employees, dates, rules, conflicts) {
     const minMorning = rules.minMorningStaff || 0;
     const minAfternoon = rules.minAfternoonStaff || 0;
-    if (minMorning === 0 && minAfternoon === 0 && !employees.some((e) => e.shiftPreference !== 'ANY')) {
+    const cornerShiftMin = rules.minStaffByCorner || {};
+    const hasCornerShiftReq = Object.values(cornerShiftMin).some((req) => (req.morning || 0) > 0 || (req.afternoon || 0) > 0);
+    if (minMorning === 0 && minAfternoon === 0 && !hasCornerShiftReq && !employees.some((e) => e.shiftPreference !== 'ANY')) {
       return;
     }
 
@@ -231,7 +237,7 @@ Hyumu.Scheduler = (function () {
 
       const lockedMorning = [];
       const lockedAfternoon = [];
-      const flexible = [];
+      let flexible = [];
 
       for (const e of workingToday) {
         const cell = schedule[e.id][date];
@@ -247,6 +253,43 @@ Hyumu.Scheduler = (function () {
         }
       }
 
+      const byMorningNeedAsc = (a, b) =>
+        (morningCount[a.id] - afternoonCount[a.id]) - (morningCount[b.id] - afternoonCount[b.id]);
+
+      // Corner-level minimums are satisfied first, pulling from that corner's flexible pool only
+      Object.entries(cornerShiftMin).forEach(([corner, req]) => {
+        const needM = req.morning || 0;
+        const needA = req.afternoon || 0;
+        if (needM === 0 && needA === 0) return;
+        const cornerWorking = workingToday.filter((e) => e.corner === corner);
+        const cornerLockedM = lockedMorning.filter((e) => e.corner === corner).length;
+        const cornerLockedA = lockedAfternoon.filter((e) => e.corner === corner).length;
+        const cornerFlexible = flexible.filter((e) => e.corner === corner);
+        const remainM = Math.max(0, needM - cornerLockedM);
+        const remainA = Math.max(0, needA - cornerLockedA);
+
+        if (remainM + remainA > cornerFlexible.length) {
+          conflicts.push({
+            date,
+            type: 'CORNER_SHIFT_MIN_VIOLATION',
+            message: `${date}: '${corner}' 코너 오전/오후 최소 인원(오전 ${needM}명, 오후 ${needA}명)을 채울 인원이 부족합니다.`,
+            employeeIds: cornerWorking.map((e) => e.id)
+          });
+        }
+
+        cornerFlexible.sort(byMorningNeedAsc);
+        const pickM = cornerFlexible.slice(0, remainM);
+        const pickMIds = new Set(pickM.map((e) => e.id));
+        const remainingCornerFlex = cornerFlexible.filter((e) => !pickMIds.has(e.id));
+        remainingCornerFlex.sort((a, b) => byMorningNeedAsc(b, a));
+        const pickA = remainingCornerFlex.slice(0, remainA);
+        const pickAIds = new Set(pickA.map((e) => e.id));
+
+        flexible = flexible.filter((e) => !pickMIds.has(e.id) && !pickAIds.has(e.id));
+        lockedMorning.push(...pickM);
+        lockedAfternoon.push(...pickA);
+      });
+
       const needMorning = Math.max(0, minMorning - lockedMorning.length);
       const needAfternoon = Math.max(0, minAfternoon - lockedAfternoon.length);
 
@@ -258,9 +301,6 @@ Hyumu.Scheduler = (function () {
           employeeIds: workingToday.map((e) => e.id)
         });
       }
-
-      const byMorningNeedAsc = (a, b) =>
-        (morningCount[a.id] - afternoonCount[a.id]) - (morningCount[b.id] - afternoonCount[b.id]);
 
       flexible.sort(byMorningNeedAsc);
       const chosenMorning = flexible.slice(0, needMorning);

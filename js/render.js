@@ -358,16 +358,24 @@ Hyumu.Render = (function () {
         </details>
 
         <details class="rule-details">
-          <summary>코너별 최소 근무 인원 (선택)</summary>
-          <div class="weekday-overrides">
-            ${Object.entries(Model.CORNER_GROUPS).flatMap(([group, corners]) => corners).map((corner) => `
-              <label class="weekday-override">
-                ${esc(corner)}
-                <input type="number" min="0" class="rule-corner-override" data-corner="${esc(corner)}"
-                  value="${rules.minStaffByCorner && rules.minStaffByCorner[corner] != null ? rules.minStaffByCorner[corner] : ''}"
-                  placeholder="0">
-              </label>
-            `).join('')}
+          <summary>코너별 오전/오후 최소 근무 인원 (선택)</summary>
+          <div class="corner-shift-overrides">
+            ${Object.entries(Model.CORNER_GROUPS).flatMap(([group, corners]) => corners).map((corner) => {
+              const cornerRule = (rules.minStaffByCorner && rules.minStaffByCorner[corner]) || {};
+              return `
+                <div class="corner-shift-override-row">
+                  <span class="corner-shift-override-name">${esc(corner)}</span>
+                  <label class="corner-shift-override-field">오전
+                    <input type="number" min="0" class="rule-corner-shift-override" data-corner="${esc(corner)}" data-shift="morning"
+                      value="${cornerRule.morning != null ? cornerRule.morning : ''}" placeholder="0">
+                  </label>
+                  <label class="corner-shift-override-field">오후
+                    <input type="number" min="0" class="rule-corner-shift-override" data-corner="${esc(corner)}" data-shift="afternoon"
+                      value="${cornerRule.afternoon != null ? cornerRule.afternoon : ''}" placeholder="0">
+                  </label>
+                </div>
+              `;
+            }).join('')}
           </div>
         </details>
 
@@ -423,9 +431,9 @@ Hyumu.Render = (function () {
         handlers.onUpdateWeekdayOverride(Number(input.dataset.wd), input.value === '' ? null : Number(input.value))
       )
     );
-    container.querySelectorAll('.rule-corner-override').forEach((input) =>
+    container.querySelectorAll('.rule-corner-shift-override').forEach((input) =>
       input.addEventListener('change', () =>
-        handlers.onUpdateCornerMinStaff(input.dataset.corner, input.value === '' ? null : Number(input.value))
+        handlers.onUpdateCornerShiftMinStaff(input.dataset.corner, input.dataset.shift, input.value === '' ? null : Number(input.value))
       )
     );
     container.querySelector('#btn-add-date-rule').addEventListener('click', () => {

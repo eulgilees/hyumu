@@ -213,11 +213,18 @@ Hyumu.App = (function () {
       }
       await save();
     },
-    async onUpdateCornerMinStaff(corner, value) {
+    async onUpdateCornerShiftMinStaff(corner, shift, value) {
+      if (!doc.rules.minStaffByCorner) doc.rules.minStaffByCorner = {};
+      const entry = doc.rules.minStaffByCorner[corner] || {};
       if (value === null) {
+        delete entry[shift];
+      } else {
+        entry[shift] = value;
+      }
+      if (Object.keys(entry).length === 0) {
         delete doc.rules.minStaffByCorner[corner];
       } else {
-        doc.rules.minStaffByCorner[corner] = value;
+        doc.rules.minStaffByCorner[corner] = entry;
       }
       await save();
     },

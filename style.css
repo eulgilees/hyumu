@@ -525,6 +525,35 @@ button {
   color: #d0021b;
 }
 
+.corner-shift-overrides {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.corner-shift-override-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.corner-shift-override-name {
+  min-width: 60px;
+  font-weight: 600;
+}
+
+.corner-shift-override-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.corner-shift-override-field input {
+  width: 60px;
+  padding: 4px 6px;
+}
+
 .employee-search-row {
   margin-bottom: 12px;
 }
