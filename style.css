@@ -512,6 +512,19 @@ button {
   color: #999;
 }
 
+.holiday-label {
+  display: inline-block;
+  font-size: 10px;
+  color: #d0021b;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.red-day-col {
+  background: #fdeaea !important;
+  color: #d0021b;
+}
+
 .employee-search-row {
   margin-bottom: 12px;
 }

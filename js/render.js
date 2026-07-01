@@ -493,10 +493,13 @@ Hyumu.Render = (function () {
           const wd = Model.weekdayOf(d);
           const day = Number(d.split('-')[2]);
           const weekendClass = wd === 0 || wd === 6 ? ' weekend-col' : '';
+          const holiday = Model.holidayName(d);
+          const redClass = Model.isRedDay(d) ? ' red-day-col' : '';
           const confClass = conflictDates.has(d) ? ' conflict-col' : '';
           const label = doc.rules.dateLabels && doc.rules.dateLabels[d];
           const labelHtml = label ? `<br><span class="date-label">${esc(label)}</span>` : '';
-          return `<th class="${weekendClass}${confClass}">${day}<br><span class="wd-label">${Model.WEEKDAY_LABELS[wd]}</span>${labelHtml}</th>`;
+          const holidayHtml = holiday ? `<br><span class="holiday-label">${esc(holiday)}</span>` : '';
+          return `<th class="${weekendClass}${redClass}${confClass}">${day}<br><span class="wd-label">${Model.WEEKDAY_LABELS[wd]}</span>${holidayHtml}${labelHtml}</th>`;
         }).join('')}
         <th class="total-col">휴무</th>
         <th class="total-col">오전</th>
@@ -513,6 +516,7 @@ Hyumu.Render = (function () {
         const cell = empSchedule[d] || { status: 'WORK', source: 'AUTO', shift: null };
         const wd = Model.weekdayOf(d);
         const weekendClass = wd === 0 || wd === 6 ? ' weekend-col' : '';
+        const redClass = Model.isRedDay(d) ? ' red-day-col' : '';
         const confClass = conflictEmpDay.has(`${emp.id}|${d}`) ? ' conflict-cell' : '';
         const sourceClass = SOURCE_CLASS[cell.source] || 'cell-auto';
         let text = '';
@@ -526,7 +530,7 @@ Hyumu.Render = (function () {
           if (cell.shift === 'MORNING') morningCount++;
           else if (cell.shift === 'AFTERNOON') afternoonCount++;
         }
-        return `<td class="cal-cell ${sourceClass}${shiftClass}${weekendClass}${confClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}">${text}</td>`;
+        return `<td class="cal-cell ${sourceClass}${shiftClass}${weekendClass}${redClass}${confClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}">${text}</td>`;
       }).join('');
       return `<tr class="cal-row" data-corner="${esc(emp.corner || '')}"><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${offCount}</td><td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td></tr>`;
     }).join('');
@@ -556,6 +560,7 @@ Hyumu.Render = (function () {
           <span class="legend-item"><span class="swatch cell-fairness"></span>자동배정</span>
           <span class="legend-item"><span class="swatch shift-morning-swatch"></span>오전</span>
           <span class="legend-item"><span class="swatch shift-afternoon-swatch"></span>오후</span>
+          <span class="legend-item"><span class="swatch red-day-col"></span>빨간날(일요일/공휴일)</span>
           <span class="legend-item">셀을 클릭하면 휴무 → 오전 → 오후 순으로 직접 바꿀 수 있습니다.</span>
         </div>
         <div class="calendar-scroll">

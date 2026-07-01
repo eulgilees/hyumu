@@ -56,10 +56,12 @@ Hyumu.Scheduler = (function () {
     const consecutiveWork = {};
     const totalOff = {};
     const weekendOff = {};
+    const redDayOff = {};
     employees.forEach((emp) => {
       consecutiveWork[emp.id] = 0;
       totalOff[emp.id] = 0;
       weekendOff[emp.id] = 0;
+      redDayOff[emp.id] = 0;
     });
 
     const lockedOffCount = {};
@@ -97,6 +99,7 @@ Hyumu.Scheduler = (function () {
     // Phase 1: chronological greedy fill
     for (const date of dates) {
       const weekend = Model.isWeekend(date);
+      const redDay = Model.isRedDay(date);
       const req = Math.max(Model.minStaffRequired(rules, date), shiftMinTotal);
 
       const lockedEmployees = [];
@@ -159,6 +162,10 @@ Hyumu.Scheduler = (function () {
         const deficitA = target[a.id] - totalOff[a.id];
         const deficitB = target[b.id] - totalOff[b.id];
         if (deficitB !== deficitA) return deficitB - deficitA;
+        if (redDay) {
+          const rDiff = redDayOff[a.id] - redDayOff[b.id];
+          if (rDiff !== 0) return rDiff;
+        }
         if (weekend) {
           const wDiff = weekendOff[a.id] - weekendOff[b.id];
           if (wDiff !== 0) return wDiff;
@@ -190,6 +197,7 @@ Hyumu.Scheduler = (function () {
           consecutiveWork[emp.id] = 0;
           totalOff[emp.id]++;
           if (weekend) weekendOff[emp.id]++;
+          if (redDay) redDayOff[emp.id]++;
         } else {
           consecutiveWork[emp.id]++;
         }
