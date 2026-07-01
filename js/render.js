@@ -10,7 +10,7 @@ Hyumu.Render = (function () {
   }
 
   async function renderHeader(container, state, handlers) {
-    const { year, month } = state;
+    const { year, month, employeeId, store } = state;
     container.innerHTML = `
       <h1>휴무 자동 배정</h1>
       <div class="month-bar">
@@ -18,22 +18,72 @@ Hyumu.Render = (function () {
         <span class="month-label">${year}년 ${month}월</span>
         <button type="button" id="btn-next-month" class="btn-icon" aria-label="다음 달">▶</button>
         <select id="month-jump"></select>
+        <span class="header-user">${esc(store || '')} · ${esc(employeeId || '')}님</span>
+        <button type="button" id="btn-logout" class="btn-icon">로그아웃</button>
       </div>
     `;
     const jump = container.querySelector('#month-jump');
     const currentKey = Model.monthKey(year, month);
-    const index = await Hyumu.Storage.loadIndex();
+    const index = await Hyumu.Storage.loadIndex(store);
     jump.innerHTML = `<option value="">저장된 달로 이동...</option>` +
       index.map((e) => `<option value="${e.key}" ${e.key === currentKey ? 'selected' : ''}>${esc(e.label)}</option>`).join('');
 
     container.querySelector('#btn-prev-month').addEventListener('click', () => handlers.onChangeMonth(-1));
     container.querySelector('#btn-next-month').addEventListener('click', () => handlers.onChangeMonth(1));
+    container.querySelector('#btn-logout').addEventListener('click', () => handlers.onLogout());
     jump.addEventListener('change', () => {
       if (jump.value) {
         const [y, m] = jump.value.split('-').map(Number);
         handlers.onJumpMonth(y, m);
       }
     });
+  }
+
+  function renderLoginScreen(container, handlers, errorMsg) {
+    container.innerHTML = `
+      <section class="screen auth-screen">
+        <h2>로그인</h2>
+        ${errorMsg ? `<p class="warning">${esc(errorMsg)}</p>` : ''}
+        <div class="field-row"><label>사번</label><input type="text" id="login-id"></div>
+        <div class="field-row"><label>비밀번호</label><input type="password" id="login-pw"></div>
+        <button type="button" id="btn-login" class="btn-primary btn-large">로그인</button>
+        <p class="hint">계정이 없으신가요? <button type="button" id="btn-goto-signup" class="link-btn">가입하기</button></p>
+      </section>
+    `;
+    container.querySelector('#btn-login').addEventListener('click', () => {
+      handlers.onLogin(container.querySelector('#login-id').value, container.querySelector('#login-pw').value);
+    });
+    container.querySelector('#btn-goto-signup').addEventListener('click', () => handlers.onGotoSignup());
+  }
+
+  function renderSignupScreen(container, handlers, errorMsg) {
+    const stores = Hyumu.Auth.STORE_LIST;
+    container.innerHTML = `
+      <section class="screen auth-screen">
+        <h2>가입하기</h2>
+        ${errorMsg ? `<p class="warning">${esc(errorMsg)}</p>` : ''}
+        <div class="field-row"><label>점포</label>
+          <select id="signup-store">
+            <option value="">선택하세요</option>
+            ${stores.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row"><label>사번</label><input type="text" id="signup-id"></div>
+        <div class="field-row"><label>비밀번호</label><input type="password" id="signup-pw"></div>
+        <div class="field-row"><label>휴대폰번호</label><input type="tel" id="signup-phone" placeholder="010-0000-0000"></div>
+        <button type="button" id="btn-signup" class="btn-primary btn-large">가입하기</button>
+        <p class="hint">이미 계정이 있으신가요? <button type="button" id="btn-goto-login" class="link-btn">로그인</button></p>
+      </section>
+    `;
+    container.querySelector('#btn-signup').addEventListener('click', () => {
+      handlers.onSignup(
+        container.querySelector('#signup-id').value,
+        container.querySelector('#signup-pw').value,
+        container.querySelector('#signup-phone').value,
+        container.querySelector('#signup-store').value
+      );
+    });
+    container.querySelector('#btn-goto-login').addEventListener('click', () => handlers.onGotoLogin());
   }
 
   function renderNav(container, state, handlers) {
@@ -338,6 +388,8 @@ Hyumu.Render = (function () {
     renderNav,
     renderEmployeeScreen,
     renderRulesScreen,
-    renderCalendarScreen
+    renderCalendarScreen,
+    renderLoginScreen,
+    renderSignupScreen
   };
 })();

@@ -50,6 +50,55 @@ body {
   padding: 4px 8px;
 }
 
+.header-user {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.auth-screen {
+  max-width: 360px;
+  margin: 40px auto;
+  background: #fff;
+  border: 1px solid #e2e4e8;
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.auth-screen .field-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.auth-screen .field-row label {
+  min-width: 0;
+  font-size: 13px;
+  color: #555;
+}
+
+.auth-screen .field-row input,
+.auth-screen .field-row select {
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.auth-screen .btn-large {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.link-btn {
+  border: none;
+  background: transparent;
+  color: #2d3e50;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  font-size: 13px;
+}
+
 #app-nav {
   display: flex;
   gap: 4px;

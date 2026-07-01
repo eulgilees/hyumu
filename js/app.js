@@ -9,6 +9,7 @@ Hyumu.App = (function () {
   let state = null;
   let doc = null;
   let unsubscribe = null;
+  let authScreen = 'login';
 
   let headerEl, navEl, contentEl;
 
@@ -17,17 +18,67 @@ Hyumu.App = (function () {
     navEl = document.getElementById('app-nav');
     contentEl = document.getElementById('app-content');
 
+    const session = Hyumu.Auth.getCurrentUser();
+    if (!session) {
+      headerEl.innerHTML = '';
+      navEl.innerHTML = '';
+      Render.renderLoginScreen(contentEl, authHandlers);
+      return;
+    }
+
+    await enterApp(session.employeeId, session.store);
+  }
+
+  async function enterApp(employeeId, store) {
     const now = new Date();
-    state = { year: now.getFullYear(), month: now.getMonth() + 1, screen: 'employees' };
-    doc = await Storage.loadOrCreateMonth(state.year, state.month);
+    state = { year: now.getFullYear(), month: now.getMonth() + 1, screen: 'employees', employeeId, store };
+    doc = await Storage.loadOrCreateMonth(store, state.year, state.month);
 
     subscribeCurrentMonth();
     renderAll();
   }
 
+  const authHandlers = {
+    onGotoSignup() {
+      authScreen = 'signup';
+      Render.renderSignupScreen(contentEl, authHandlers);
+    },
+    onGotoLogin() {
+      authScreen = 'login';
+      Render.renderLoginScreen(contentEl, authHandlers);
+    },
+    async onLogin(employeeId, password) {
+      try {
+        const session = await Hyumu.Auth.login(employeeId, password);
+        await enterApp(session.employeeId, session.store);
+      } catch (e) {
+        Render.renderLoginScreen(contentEl, authHandlers, e.message);
+      }
+    },
+    async onSignup(employeeId, password, phone, store) {
+      try {
+        const session = await Hyumu.Auth.signup(employeeId, password, phone, store);
+        await enterApp(session.employeeId, session.store);
+      } catch (e) {
+        Render.renderSignupScreen(contentEl, authHandlers, e.message);
+      }
+    },
+    onLogout() {
+      Hyumu.Auth.logout();
+      if (unsubscribe) unsubscribe();
+      unsubscribe = null;
+      doc = null;
+      state = null;
+      authScreen = 'login';
+      Render.renderLoginScreen(contentEl, authHandlers);
+      headerEl.innerHTML = '';
+      navEl.innerHTML = '';
+    }
+  };
+
   function subscribeCurrentMonth() {
     if (unsubscribe) unsubscribe();
-    unsubscribe = Storage.subscribeMonth(state.year, state.month, (remoteDoc) => {
+    unsubscribe = Storage.subscribeMonth(state.store, state.year, state.month, (remoteDoc) => {
       doc = remoteDoc;
       if (state.screen === 'calendar') {
         renderContent();
@@ -36,7 +87,7 @@ Hyumu.App = (function () {
   }
 
   async function save() {
-    await Storage.saveMonth(doc);
+    await Storage.saveMonth(state.store, doc);
   }
 
   async function renderAll() {
@@ -63,16 +114,19 @@ Hyumu.App = (function () {
       if (month > 12) { month = 1; year += 1; }
       state.year = year;
       state.month = month;
-      doc = await Storage.loadOrCreateMonth(year, month);
+      doc = await Storage.loadOrCreateMonth(state.store, year, month);
       subscribeCurrentMonth();
       renderAll();
     },
     async onJumpMonth(year, month) {
       state.year = year;
       state.month = month;
-      doc = await Storage.loadOrCreateMonth(year, month);
+      doc = await Storage.loadOrCreateMonth(state.store, year, month);
       subscribeCurrentMonth();
       renderAll();
+    },
+    onLogout() {
+      authHandlers.onLogout();
     }
   };
 
