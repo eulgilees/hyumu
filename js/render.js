@@ -225,9 +225,14 @@ Hyumu.Render = (function () {
           </div>
         </div>
         <div class="specific-off">
-          <button type="button" class="btn-open-calendar" data-id="${emp.id}">+ 개인 휴무 날짜 추가</button>
+          <div class="specific-off-add-row">
+            <select class="emp-leave-type" data-id="${emp.id}">
+              ${Object.entries(Model.LEAVE_TYPES).map(([key, label]) => `<option value="${key}">${label}</option>`).join('')}
+            </select>
+            <button type="button" class="btn-open-calendar" data-id="${emp.id}">+ 개인 휴무 날짜 추가</button>
+          </div>
           <div class="date-chips">
-            ${emp.specificOff.map((d) => `<span class="chip">${d} <button type="button" class="chip-remove" data-id="${emp.id}" data-date="${d}">×</button></span>`).join('')}
+            ${emp.specificOff.map((d) => `<span class="chip">${d} (${esc(Model.LEAVE_TYPES[Model.leaveTypeOf(emp, d)])}) <button type="button" class="chip-remove" data-id="${emp.id}" data-date="${d}">×</button></span>`).join('')}
           </div>
         </div>
       </div>
@@ -305,8 +310,10 @@ Hyumu.Render = (function () {
     );
     container.querySelectorAll('.btn-open-calendar').forEach((btn) =>
       btn.addEventListener('click', () => {
+        const card = btn.closest('.employee-card');
+        const typeSelect = card.querySelector('.emp-leave-type');
         openCustomCalendar(btn, null, (dateStr) => {
-          handlers.onAddSpecificOff(btn.dataset.id, dateStr);
+          handlers.onAddSpecificOff(btn.dataset.id, dateStr, typeSelect ? typeSelect.value : 'PERSONAL');
         });
       })
     );
@@ -539,7 +546,9 @@ Hyumu.Render = (function () {
         let shiftClass = '';
         if (cell.status === 'OFF') {
           offCount++;
-          text = '휴';
+          text = (cell.source === 'BASE' && emp.specificOff.includes(d))
+            ? Model.LEAVE_TYPES[Model.leaveTypeOf(emp, d)]
+            : '휴';
         } else {
           text = Model.SHIFT_LABELS[cell.shift] || '';
           shiftClass = cell.shift === 'MORNING' ? ' shift-morning' : cell.shift === 'AFTERNOON' ? ' shift-afternoon' : '';

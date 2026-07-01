@@ -168,13 +168,15 @@ Hyumu.App = (function () {
       }
       await save();
     },
-    async onAddSpecificOff(id, date) {
+    async onAddSpecificOff(id, date, leaveType) {
       const emp = doc.employees.find((e) => e.id === id);
       if (!emp) return;
       if (!emp.specificOff.includes(date)) {
         emp.specificOff.push(date);
         emp.specificOff.sort();
       }
+      if (!emp.specificOffTypes) emp.specificOffTypes = {};
+      emp.specificOffTypes[date] = leaveType || 'PERSONAL';
       await save();
       renderContent();
     },
@@ -182,6 +184,7 @@ Hyumu.App = (function () {
       const emp = doc.employees.find((e) => e.id === id);
       if (!emp) return;
       emp.specificOff = emp.specificOff.filter((d) => d !== date);
+      if (emp.specificOffTypes) delete emp.specificOffTypes[date];
       await save();
       renderContent();
     },

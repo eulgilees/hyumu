@@ -90,8 +90,19 @@ Hyumu.Model = (function () {
     '서적': ['인문', '기술', '외국어', '아동', '소설', '경제']
   };
 
+  const LEAVE_TYPES = {
+    PERSONAL: '개인휴무',
+    ANNUAL: '연차',
+    CHEDAN: '체단',
+    RECOGNIZED: '인정'
+  };
+
   function createEmployee(id, name) {
-    return { id, name, recurringOff: [], specificOff: [], shiftPreference: 'ANY', corner: '', corners: [] };
+    return { id, name, recurringOff: [], specificOff: [], specificOffTypes: {}, shiftPreference: 'ANY', corner: '', corners: [] };
+  }
+
+  function leaveTypeOf(emp, dateStr) {
+    return (emp.specificOffTypes && emp.specificOffTypes[dateStr]) || 'PERSONAL';
   }
 
   function employeeCorners(emp) {
@@ -152,6 +163,8 @@ Hyumu.Model = (function () {
     holidayName,
     isRedDay,
     employeeCorners,
+    LEAVE_TYPES,
+    leaveTypeOf,
     pad2,
     daysInMonth,
     dateISO,
