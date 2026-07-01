@@ -423,6 +423,17 @@ button {
   color: #999;
 }
 
+.employee-search-row {
+  margin-bottom: 12px;
+}
+
+.employee-search-row input {
+  width: 100%;
+  max-width: 320px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+
 .date-label {
   display: inline-block;
   font-size: 10px;
