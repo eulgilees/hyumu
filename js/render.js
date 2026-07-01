@@ -248,6 +248,20 @@ Hyumu.Render = (function () {
         </details>
 
         <details class="rule-details">
+          <summary>특정 날짜 이름표 (꼭 쉬어야하는 날 등) (선택)</summary>
+          <div class="date-override-add">
+            <input type="date" id="rule-label-date-input">
+            <input type="text" id="rule-label-text" placeholder="예: 꼭 쉬어야하는 날">
+            <button type="button" id="btn-add-date-label">추가</button>
+          </div>
+          <div class="date-override-list">
+            ${Object.entries(rules.dateLabels || {}).map(([date, label]) => `
+              <span class="chip">${date}: ${esc(label)} <button type="button" class="date-label-remove" data-date="${date}">×</button></span>
+            `).join('')}
+          </div>
+        </details>
+
+        <details class="rule-details">
           <summary>특정 날짜 최소 근무 인원 예외 (선택)</summary>
           <div class="date-override-add">
             <input type="date" id="rule-date-input">
@@ -302,6 +316,18 @@ Hyumu.Render = (function () {
     container.querySelectorAll('.date-rule-remove').forEach((btn) =>
       btn.addEventListener('click', () => handlers.onUpdateDateOverride(btn.dataset.date, null))
     );
+    container.querySelector('#btn-add-date-label').addEventListener('click', () => {
+      const dateInput = container.querySelector('#rule-label-date-input');
+      const textInput = container.querySelector('#rule-label-text');
+      if (dateInput.value && textInput.value.trim() !== '') {
+        handlers.onUpdateDateLabel(dateInput.value, textInput.value.trim());
+        dateInput.value = '';
+        textInput.value = '';
+      }
+    });
+    container.querySelectorAll('.date-label-remove').forEach((btn) =>
+      btn.addEventListener('click', () => handlers.onUpdateDateLabel(btn.dataset.date, null))
+    );
     container.querySelector('#btn-generate').addEventListener('click', () => handlers.onGenerate());
   }
 
@@ -344,7 +370,9 @@ Hyumu.Render = (function () {
           const day = Number(d.split('-')[2]);
           const weekendClass = wd === 0 || wd === 6 ? ' weekend-col' : '';
           const confClass = conflictDates.has(d) ? ' conflict-col' : '';
-          return `<th class="${weekendClass}${confClass}">${day}<br><span class="wd-label">${Model.WEEKDAY_LABELS[wd]}</span></th>`;
+          const label = doc.rules.dateLabels && doc.rules.dateLabels[d];
+          const labelHtml = label ? `<br><span class="date-label">${esc(label)}</span>` : '';
+          return `<th class="${weekendClass}${confClass}">${day}<br><span class="wd-label">${Model.WEEKDAY_LABELS[wd]}</span>${labelHtml}</th>`;
         }).join('')}
         <th class="total-col">휴무</th>
         <th class="total-col">오전</th>

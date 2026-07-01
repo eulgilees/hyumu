@@ -423,6 +423,14 @@ button {
   color: #999;
 }
 
+.date-label {
+  display: inline-block;
+  font-size: 10px;
+  color: #c0392b;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .weekend-col {
   background: #fbf3f3;
 }

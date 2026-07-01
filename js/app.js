@@ -221,6 +221,16 @@ Hyumu.App = (function () {
       }
       await save();
     },
+    async onUpdateDateLabel(date, label) {
+      if (!doc.rules.dateLabels) doc.rules.dateLabels = {};
+      if (label === null) {
+        delete doc.rules.dateLabels[date];
+      } else {
+        doc.rules.dateLabels[date] = label;
+      }
+      await save();
+      renderContent();
+    },
     async onUpdateDateOverride(date, value) {
       if (value === null) {
         delete doc.rules.minStaffByDate[date];

@@ -55,7 +55,8 @@ Hyumu.Model = (function () {
       minRestPerWeekWindow: false,
       minMorningStaff: 0,
       minAfternoonStaff: 0,
-      minStaffByCorner: {}
+      minStaffByCorner: {},
+      dateLabels: {}
     };
   }
 
