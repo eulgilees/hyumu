@@ -242,6 +242,7 @@ Hyumu.Render = (function () {
       <section class="screen">
         <h2>직원 설정</h2>
         <p class="hint">고정 휴무 요일과 이미 승인된 개인 휴무 날짜만 입력하세요. 나머지는 규칙에 따라 자동으로 배정됩니다.</p>
+        <button type="button" id="btn-add-employee" class="btn-primary">+ 직원 추가</button>
         <div class="employee-search-row">
           <input type="text" id="employee-search" placeholder="이름으로 검색...">
         </div>
@@ -261,7 +262,6 @@ Hyumu.Render = (function () {
         </div>
         <div id="employee-list">${rows || '<p class="hint">아직 등록된 직원이 없습니다.</p>'}</div>
         <p id="employee-search-empty" class="hint" style="display:none;">검색 결과가 없습니다.</p>
-        <button type="button" id="btn-add-employee" class="btn-primary">+ 직원 추가</button>
       </section>
     `;
 

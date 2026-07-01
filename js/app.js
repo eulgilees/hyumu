@@ -141,7 +141,7 @@ Hyumu.App = (function () {
   const employeeHandlers = {
     async onAddEmployee() {
       const id = `emp${doc.meta.nextEmployeeId++}`;
-      doc.employees.push(Model.createEmployee(id, `직원${doc.employees.length + 1}`));
+      doc.employees.unshift(Model.createEmployee(id, `직원${doc.employees.length + 1}`));
       await save();
       renderContent();
     },
