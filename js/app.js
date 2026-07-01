@@ -191,10 +191,11 @@ Hyumu.App = (function () {
       emp.shiftPreference = value;
       await save();
     },
-    async onUpdateCorner(id, value) {
+    async onUpdateCorners(id, corners) {
       const emp = doc.employees.find((e) => e.id === id);
       if (!emp) return;
-      emp.corner = value;
+      emp.corners = corners;
+      emp.corner = corners[0] || '';
       await save();
     }
   };

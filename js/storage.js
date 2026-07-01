@@ -73,7 +73,8 @@ Hyumu.Storage = (function () {
       recurringOff: [...e.recurringOff],
       specificOff: [],
       shiftPreference: e.shiftPreference || 'ANY',
-      corner: e.corner || ''
+      corner: e.corner || '',
+      corners: Hyumu.Model.employeeCorners(e)
     }));
   }
 

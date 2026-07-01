@@ -91,7 +91,13 @@ Hyumu.Model = (function () {
   };
 
   function createEmployee(id, name) {
-    return { id, name, recurringOff: [], specificOff: [], shiftPreference: 'ANY', corner: '' };
+    return { id, name, recurringOff: [], specificOff: [], shiftPreference: 'ANY', corner: '', corners: [] };
+  }
+
+  function employeeCorners(emp) {
+    if (emp.corners && emp.corners.length) return emp.corners;
+    if (emp.corner) return [emp.corner];
+    return [];
   }
 
   function defaultRules() {
@@ -145,6 +151,7 @@ Hyumu.Model = (function () {
     KR_HOLIDAYS,
     holidayName,
     isRedDay,
+    employeeCorners,
     pad2,
     daysInMonth,
     dateISO,

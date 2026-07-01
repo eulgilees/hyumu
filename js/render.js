@@ -186,7 +186,7 @@ Hyumu.Render = (function () {
 
   function renderEmployeeScreen(container, doc, handlers) {
     const rows = doc.employees.map((emp) => `
-      <div class="employee-card" data-id="${emp.id}" data-corner="${esc(emp.corner || '')}">
+      <div class="employee-card" data-id="${emp.id}" data-corners="${esc(JSON.stringify(Model.employeeCorners(emp)))}">
         <div class="employee-row">
           <input type="text" class="emp-name" value="${esc(emp.name)}" placeholder="이름" data-id="${emp.id}">
           <button type="button" class="btn-remove-emp" data-id="${emp.id}">삭제</button>
@@ -208,16 +208,21 @@ Hyumu.Render = (function () {
             <option value="AFTERNOON" ${emp.shiftPreference === 'AFTERNOON' ? 'selected' : ''}>오후만</option>
           </select>
         </div>
-        <div class="shift-pref-row">
-          <label class="hint">코너</label>
-          <select class="emp-corner" data-id="${emp.id}">
-            <option value="" ${!emp.corner ? 'selected' : ''}>미지정</option>
+        <div class="shift-pref-row emp-corner-row">
+          <label class="hint">코너 (여러 개 담당 가능)</label>
+          <div class="emp-corner-checks">
             ${Object.entries(Model.CORNER_GROUPS).map(([group, corners]) => `
-              <optgroup label="${esc(group)}">
-                ${corners.map((c) => `<option value="${esc(c)}" ${emp.corner === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
-              </optgroup>
+              <div class="corner-filter-group">
+                <span class="corner-filter-group-label">${esc(group)}</span>
+                ${corners.map((c) => `
+                  <label class="corner-filter-check">
+                    <input type="checkbox" class="emp-corner-check" data-id="${emp.id}" value="${esc(c)}" ${Model.employeeCorners(emp).includes(c) ? 'checked' : ''}>
+                    ${esc(c)}
+                  </label>
+                `).join('')}
+              </div>
             `).join('')}
-          </select>
+          </div>
         </div>
         <div class="specific-off">
           <button type="button" class="btn-open-calendar" data-id="${emp.id}">+ 개인 휴무 날짜 추가</button>
@@ -263,7 +268,8 @@ Hyumu.Render = (function () {
       cards.forEach((card) => {
         const nameInput = card.querySelector('.emp-name');
         const nameMatch = !term || nameInput.value.toLowerCase().includes(term);
-        const cornerMatch = checkedCorners.length === 0 || checkedCorners.includes(card.dataset.corner);
+        const cardCorners = JSON.parse(card.dataset.corners || '[]');
+        const cornerMatch = checkedCorners.length === 0 || checkedCorners.some((c) => cardCorners.includes(c));
         const match = nameMatch && cornerMatch;
         card.style.display = match ? '' : 'none';
         if (match) visibleCount++;
@@ -288,10 +294,12 @@ Hyumu.Render = (function () {
     container.querySelectorAll('.emp-shift-pref').forEach((select) =>
       select.addEventListener('change', () => handlers.onUpdateShiftPreference(select.dataset.id, select.value))
     );
-    container.querySelectorAll('.emp-corner').forEach((select) =>
-      select.addEventListener('change', () => {
-        select.closest('.employee-card').dataset.corner = select.value;
-        handlers.onUpdateCorner(select.dataset.id, select.value);
+    container.querySelectorAll('.emp-corner-check').forEach((cb) =>
+      cb.addEventListener('change', () => {
+        const card = cb.closest('.employee-card');
+        const checked = Array.from(card.querySelectorAll('.emp-corner-check:checked')).map((c) => c.value);
+        card.dataset.corners = JSON.stringify(checked);
+        handlers.onUpdateCorners(cb.dataset.id, checked);
         applyEmployeeFilter();
       })
     );
@@ -540,7 +548,7 @@ Hyumu.Render = (function () {
         }
         return `<td class="cal-cell ${sourceClass}${shiftClass}${weekendClass}${redClass}${confClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}">${text}</td>`;
       }).join('');
-      return `<tr class="cal-row" data-corner="${esc(emp.corner || '')}"><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${offCount}</td><td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td></tr>`;
+      return `<tr class="cal-row" data-corners="${esc(JSON.stringify(Model.employeeCorners(emp)))}"><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${offCount}</td><td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td></tr>`;
     }).join('');
 
     container.innerHTML = `
@@ -593,7 +601,8 @@ Hyumu.Render = (function () {
     container.querySelectorAll('.cal-corner-filter').forEach((cb) => cb.addEventListener('change', () => {
       const checkedCorners = Array.from(container.querySelectorAll('.cal-corner-filter:checked')).map((c) => c.value);
       container.querySelectorAll('.cal-row').forEach((row) => {
-        row.style.display = (checkedCorners.length === 0 || checkedCorners.includes(row.dataset.corner)) ? '' : 'none';
+        const rowCorners = JSON.parse(row.dataset.corners || '[]');
+        row.style.display = (checkedCorners.length === 0 || checkedCorners.some((c) => rowCorners.includes(c))) ? '' : 'none';
       });
     }));
     container.querySelector('#btn-regenerate').addEventListener('click', () => handlers.onRegenerate());

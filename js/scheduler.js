@@ -97,7 +97,9 @@ Hyumu.Scheduler = (function () {
     });
     const cornerTotal = {};
     employees.forEach((emp) => {
-      if (emp.corner) cornerTotal[emp.corner] = (cornerTotal[emp.corner] || 0) + 1;
+      Model.employeeCorners(emp).forEach((c) => {
+        cornerTotal[c] = (cornerTotal[c] || 0) + 1;
+      });
     });
 
     // Phase 1: chronological greedy fill
@@ -145,7 +147,9 @@ Hyumu.Scheduler = (function () {
       // Per-corner remaining OFF budget: locked/forced-off corner members already consumed some
       const cornerOffUsed = {};
       [...lockedEmployees.filter((e) => schedule[e.id][date].status === 'OFF'), ...forcedOff].forEach((emp) => {
-        if (emp.corner) cornerOffUsed[emp.corner] = (cornerOffUsed[emp.corner] || 0) + 1;
+        Model.employeeCorners(emp).forEach((c) => {
+          cornerOffUsed[c] = (cornerOffUsed[c] || 0) + 1;
+        });
       });
       const cornerAllowedOff = {};
       Object.keys(cornerTotal).forEach((corner) => {
@@ -182,13 +186,13 @@ Hyumu.Scheduler = (function () {
       const chosenOff = [];
       for (const emp of candidates) {
         if (chosenOff.length >= remainingSlots) break;
-        const corner = emp.corner;
-        if (corner && cornerAllowedOff[corner] != null) {
-          const used = cornerOffUsed[corner] || 0;
-          if (used >= cornerAllowedOff[corner]) continue;
-        }
+        const empCorners = Model.employeeCorners(emp);
+        const blocked = empCorners.some((c) => cornerAllowedOff[c] != null && (cornerOffUsed[c] || 0) >= cornerAllowedOff[c]);
+        if (blocked) continue;
         chosenOff.push(emp);
-        if (corner) cornerOffUsed[corner] = (cornerOffUsed[corner] || 0) + 1;
+        empCorners.forEach((c) => {
+          cornerOffUsed[c] = (cornerOffUsed[c] || 0) + 1;
+        });
       }
       const chosenOffIds = new Set(chosenOff.map((e) => e.id));
 
@@ -261,10 +265,10 @@ Hyumu.Scheduler = (function () {
         const needM = req.morning || 0;
         const needA = req.afternoon || 0;
         if (needM === 0 && needA === 0) return;
-        const cornerWorking = workingToday.filter((e) => e.corner === corner);
-        const cornerLockedM = lockedMorning.filter((e) => e.corner === corner).length;
-        const cornerLockedA = lockedAfternoon.filter((e) => e.corner === corner).length;
-        const cornerFlexible = flexible.filter((e) => e.corner === corner);
+        const cornerWorking = workingToday.filter((e) => Model.employeeCorners(e).includes(corner));
+        const cornerLockedM = lockedMorning.filter((e) => Model.employeeCorners(e).includes(corner)).length;
+        const cornerLockedA = lockedAfternoon.filter((e) => Model.employeeCorners(e).includes(corner)).length;
+        const cornerFlexible = flexible.filter((e) => Model.employeeCorners(e).includes(corner));
         const remainM = Math.max(0, needM - cornerLockedM);
         const remainA = Math.max(0, needA - cornerLockedA);
 
