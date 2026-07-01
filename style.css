@@ -555,14 +555,23 @@ button {
 }
 
 .employee-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 12px;
+  flex-wrap: wrap;
 }
 
 .employee-search-row input {
-  width: 100%;
+  flex: 1 1 auto;
+  width: auto;
   max-width: 320px;
   padding: 8px 10px;
   box-sizing: border-box;
+}
+
+.employee-search-row .btn-primary {
+  flex: 0 0 auto;
 }
 
 .corner-filter-row {
