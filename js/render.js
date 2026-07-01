@@ -9,6 +9,90 @@ Hyumu.Render = (function () {
     }[c]));
   }
 
+  let openCalendarPopup = null;
+
+  function closeCalendarPopup() {
+    if (openCalendarPopup) {
+      openCalendarPopup.remove();
+      openCalendarPopup = null;
+      document.removeEventListener('mousedown', handleOutsideCalendarClick, true);
+    }
+  }
+
+  function handleOutsideCalendarClick(e) {
+    if (openCalendarPopup && !openCalendarPopup.contains(e.target)) {
+      closeCalendarPopup();
+    }
+  }
+
+  function openCustomCalendar(anchorEl, initialDateStr, onSelect) {
+    closeCalendarPopup();
+    const today = new Date();
+    let [y, m] = initialDateStr
+      ? initialDateStr.split('-').map(Number)
+      : [today.getFullYear(), today.getMonth() + 1];
+
+    const popup = document.createElement('div');
+    popup.className = 'custom-calendar-popup';
+    document.body.appendChild(popup);
+    openCalendarPopup = popup;
+
+    function renderMonth() {
+      const first = new Date(y, m - 1, 1);
+      const startWeekday = first.getDay();
+      const numDays = Model.daysInMonth(y, m);
+      const cells = [];
+      for (let i = 0; i < startWeekday; i++) cells.push('<span class="cc-day cc-empty"></span>');
+      for (let d = 1; d <= numDays; d++) {
+        const dateStr = Model.dateISO(y, m, d);
+        const isToday = dateStr === Model.dateISO(today.getFullYear(), today.getMonth() + 1, today.getDate());
+        cells.push(`<button type="button" class="cc-day${isToday ? ' cc-today' : ''}" data-date="${dateStr}">${d}</button>`);
+      }
+      popup.innerHTML = `
+        <div class="cc-header">
+          <button type="button" class="cc-nav" id="cc-prev">‹</button>
+          <span class="cc-title">${y}년 ${m}월</span>
+          <button type="button" class="cc-nav" id="cc-next">›</button>
+        </div>
+        <div class="cc-weekdays">
+          ${Model.WEEKDAY_LABELS.map((l) => `<span class="cc-wd">${l}</span>`).join('')}
+        </div>
+        <div class="cc-grid">${cells.join('')}</div>
+        <div class="cc-footer">
+          <button type="button" class="cc-link" id="cc-today-btn">오늘</button>
+          <button type="button" class="cc-link" id="cc-close-btn">닫기</button>
+        </div>
+      `;
+      popup.querySelector('#cc-prev').addEventListener('click', () => {
+        m -= 1; if (m < 1) { m = 12; y -= 1; }
+        renderMonth();
+      });
+      popup.querySelector('#cc-next').addEventListener('click', () => {
+        m += 1; if (m > 12) { m = 1; y += 1; }
+        renderMonth();
+      });
+      popup.querySelector('#cc-today-btn').addEventListener('click', () => {
+        y = today.getFullYear(); m = today.getMonth() + 1;
+        renderMonth();
+      });
+      popup.querySelector('#cc-close-btn').addEventListener('click', () => closeCalendarPopup());
+      popup.querySelectorAll('.cc-day[data-date]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          onSelect(btn.dataset.date);
+          closeCalendarPopup();
+        });
+      });
+    }
+    renderMonth();
+
+    const rect = anchorEl.getBoundingClientRect();
+    popup.style.position = 'absolute';
+    popup.style.top = `${window.scrollY + rect.bottom + 6}px`;
+    popup.style.left = `${window.scrollX + rect.left}px`;
+
+    setTimeout(() => document.addEventListener('mousedown', handleOutsideCalendarClick, true), 0);
+  }
+
   async function renderHeader(container, state, handlers) {
     const { year, month, employeeId, store } = state;
     container.innerHTML = `
@@ -136,7 +220,7 @@ Hyumu.Render = (function () {
           </select>
         </div>
         <div class="specific-off">
-          <input type="date" class="emp-date-input" data-id="${emp.id}">
+          <button type="button" class="btn-open-calendar" data-id="${emp.id}">+ 개인 휴무 날짜 추가</button>
           <div class="date-chips">
             ${emp.specificOff.map((d) => `<span class="chip">${d} <button type="button" class="chip-remove" data-id="${emp.id}" data-date="${d}">×</button></span>`).join('')}
           </div>
@@ -211,11 +295,11 @@ Hyumu.Render = (function () {
         applyEmployeeFilter();
       })
     );
-    container.querySelectorAll('.emp-date-input').forEach((input) =>
-      input.addEventListener('change', () => {
-        if (input.value) {
-          handlers.onAddSpecificOff(input.dataset.id, input.value);
-        }
+    container.querySelectorAll('.btn-open-calendar').forEach((btn) =>
+      btn.addEventListener('click', () => {
+        openCustomCalendar(btn, null, (dateStr) => {
+          handlers.onAddSpecificOff(btn.dataset.id, dateStr);
+        });
       })
     );
     container.querySelectorAll('.chip-remove').forEach((btn) =>
