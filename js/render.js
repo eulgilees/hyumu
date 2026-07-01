@@ -178,4 +178,166 @@ Hyumu.Render = (function () {
           </div>
           <div class="date-override-list">
             ${Object.entries(rules.minStaffByDate).map(([date, val]) => `
-              <span class="chip">${date}: ${val}명 <button type="
+              <span class="chip">${date}: ${val}명 <button type="button" class="date-rule-remove" data-date="${date}">×</button></span>
+            `).join('')}
+          </div>
+        </details>
+
+        <button type="button" id="btn-generate" class="btn-primary btn-large">휴무 생성하기</button>
+      </section>
+    `;
+
+    container.querySelector('#rule-min-staff').addEventListener('change', (e) =>
+      handlers.onUpdateRule('minStaffDefault', Number(e.target.value))
+    );
+    container.querySelector('#rule-max-consecutive').addEventListener('change', (e) =>
+      handlers.onUpdateRule('maxConsecutiveWorkDays', Number(e.target.value))
+    );
+    container.querySelector('#rule-min-morning').addEventListener('change', (e) =>
+      handlers.onUpdateRule('minMorningStaff', Number(e.target.value))
+    );
+    container.querySelector('#rule-min-afternoon').addEventListener('change', (e) =>
+      handlers.onUpdateRule('minAfternoonStaff', Number(e.target.value))
+    );
+    container.querySelector('#rule-week-rest').addEventListener('change', (e) =>
+      handlers.onUpdateRule('minRestPerWeekWindow', e.target.checked)
+    );
+    container.querySelectorAll('.rule-weekday-override').forEach((input) =>
+      input.addEventListener('change', () =>
+        handlers.onUpdateWeekdayOverride(Number(input.dataset.wd), input.value === '' ? null : Number(input.value))
+      )
+    );
+    container.querySelector('#btn-add-date-rule').addEventListener('click', () => {
+      const dateInput = container.querySelector('#rule-date-input');
+      const valInput = container.querySelector('#rule-date-value');
+      if (dateInput.value && valInput.value !== '') {
+        handlers.onUpdateDateOverride(dateInput.value, Number(valInput.value));
+        dateInput.value = '';
+        valInput.value = '';
+      }
+    });
+    container.querySelectorAll('.date-rule-remove').forEach((btn) =>
+      btn.addEventListener('click', () => handlers.onUpdateDateOverride(btn.dataset.date, null))
+    );
+    container.querySelector('#btn-generate').addEventListener('click', () => handlers.onGenerate());
+  }
+
+  const SOURCE_CLASS = {
+    BASE: 'cell-base',
+    MANUAL: 'cell-manual',
+    AUTO_FORCED: 'cell-forced',
+    AUTO_FAIRNESS: 'cell-fairness',
+    AUTO: 'cell-auto'
+  };
+
+  function renderCalendarScreen(container, doc, handlers) {
+    const dates = Model.allDatesOfMonth(doc.month.year, doc.month.month);
+    const employees = doc.employees;
+
+    if (employees.length === 0) {
+      container.innerHTML = `<section class="screen"><h2>결과 캘린더</h2><p class="hint">먼저 직원 설정에서 직원을 추가하세요.</p></section>`;
+      return;
+    }
+
+    const conflictDates = new Set(doc.conflicts.filter((c) => c.date).map((c) => c.date));
+    const conflictEmpDay = new Set();
+    doc.conflicts.forEach((c) => {
+      if (!c.date) return;
+      (c.employeeIds || []).forEach((id) => conflictEmpDay.add(`${id}|${c.date}`));
+    });
+
+    const banner = doc.conflicts.length > 0 ? `
+      <div class="conflict-banner">
+        <strong>⚠ 이 규칙으로는 배정 불가능한 날짜가 있습니다</strong>
+        <ul>${doc.conflicts.map((c) => `<li>${esc(c.message)}</li>`).join('')}</ul>
+      </div>
+    ` : '';
+
+    const headerRow = `
+      <tr>
+        <th class="name-col">직원</th>
+        ${dates.map((d) => {
+          const wd = Model.weekdayOf(d);
+          const day = Number(d.split('-')[2]);
+          const weekendClass = wd === 0 || wd === 6 ? ' weekend-col' : '';
+          const confClass = conflictDates.has(d) ? ' conflict-col' : '';
+          return `<th class="${weekendClass}${confClass}">${day}<br><span class="wd-label">${Model.WEEKDAY_LABELS[wd]}</span></th>`;
+        }).join('')}
+        <th class="total-col">휴무</th>
+        <th class="total-col">오전</th>
+        <th class="total-col">오후</th>
+      </tr>
+    `;
+
+    const bodyRows = employees.map((emp) => {
+      const empSchedule = doc.schedule[emp.id] || {};
+      let offCount = 0;
+      let morningCount = 0;
+      let afternoonCount = 0;
+      const cells = dates.map((d) => {
+        const cell = empSchedule[d] || { status: 'WORK', source: 'AUTO', shift: null };
+        const wd = Model.weekdayOf(d);
+        const weekendClass = wd === 0 || wd === 6 ? ' weekend-col' : '';
+        const confClass = conflictEmpDay.has(`${emp.id}|${d}`) ? ' conflict-cell' : '';
+        const sourceClass = SOURCE_CLASS[cell.source] || 'cell-auto';
+        let text = '';
+        let shiftClass = '';
+        if (cell.status === 'OFF') {
+          offCount++;
+          text = '휴';
+        } else {
+          text = Model.SHIFT_LABELS[cell.shift] || '';
+          shiftClass = cell.shift === 'MORNING' ? ' shift-morning' : cell.shift === 'AFTERNOON' ? ' shift-afternoon' : '';
+          if (cell.shift === 'MORNING') morningCount++;
+          else if (cell.shift === 'AFTERNOON') afternoonCount++;
+        }
+        return `<td class="cal-cell ${sourceClass}${shiftClass}${weekendClass}${confClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}">${text}</td>`;
+      }).join('');
+      return `<tr><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${offCount}</td><td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td></tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <section class="screen screen-calendar">
+        <h2>결과 캘린더</h2>
+        ${banner}
+        <div class="legend">
+          <span class="legend-item"><span class="swatch cell-base"></span>고정휴무</span>
+          <span class="legend-item"><span class="swatch cell-manual"></span>수동수정</span>
+          <span class="legend-item"><span class="swatch cell-forced"></span>연속근무제한</span>
+          <span class="legend-item"><span class="swatch cell-fairness"></span>자동배정</span>
+          <span class="legend-item"><span class="swatch shift-morning-swatch"></span>오전</span>
+          <span class="legend-item"><span class="swatch shift-afternoon-swatch"></span>오후</span>
+          <span class="legend-item">셀을 클릭하면 휴무 → 오전 → 오후 순으로 직접 바꿀 수 있습니다.</span>
+        </div>
+        <div class="calendar-scroll">
+          <table class="calendar-table">
+            <thead>${headerRow}</thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+        </div>
+        <div class="calendar-actions">
+          <button type="button" id="btn-regenerate" class="btn-primary">다시 계산</button>
+          <button type="button" id="btn-reset-manual">수동 수정 초기화</button>
+          <button type="button" id="btn-print">인쇄 / PDF로 저장</button>
+        </div>
+      </section>
+    `;
+
+    container.querySelectorAll('.cal-cell').forEach((cell) => {
+      cell.addEventListener('click', () => {
+        handlers.onToggleCell(cell.dataset.emp, cell.dataset.date, cell.dataset.status, cell.dataset.shift || null);
+      });
+    });
+    container.querySelector('#btn-regenerate').addEventListener('click', () => handlers.onRegenerate());
+    container.querySelector('#btn-reset-manual').addEventListener('click', () => handlers.onResetManual());
+    container.querySelector('#btn-print').addEventListener('click', () => window.print());
+  }
+
+  return {
+    renderHeader,
+    renderNav,
+    renderEmployeeScreen,
+    renderRulesScreen,
+    renderCalendarScreen
+  };
+})();
