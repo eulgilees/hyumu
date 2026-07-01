@@ -190,6 +190,12 @@ Hyumu.App = (function () {
       if (!emp) return;
       emp.shiftPreference = value;
       await save();
+    },
+    async onUpdateCorner(id, value) {
+      const emp = doc.employees.find((e) => e.id === id);
+      if (!emp) return;
+      emp.corner = value;
+      await save();
     }
   };
 
@@ -204,6 +210,14 @@ Hyumu.App = (function () {
         delete doc.rules.minStaffByWeekday[weekday];
       } else {
         doc.rules.minStaffByWeekday[weekday] = value;
+      }
+      await save();
+    },
+    async onUpdateCornerMinStaff(corner, value) {
+      if (value === null) {
+        delete doc.rules.minStaffByCorner[corner];
+      } else {
+        doc.rules.minStaffByCorner[corner] = value;
       }
       await save();
     },

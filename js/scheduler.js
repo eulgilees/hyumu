@@ -88,6 +88,12 @@ Hyumu.Scheduler = (function () {
     const effectiveCap = rules.minRestPerWeekWindow ? Math.min(cap, 6) : cap;
     const shiftMinTotal = (rules.minMorningStaff || 0) + (rules.minAfternoonStaff || 0);
 
+    const cornerMinStaff = rules.minStaffByCorner || {};
+    const cornerTotal = {};
+    employees.forEach((emp) => {
+      if (emp.corner) cornerTotal[emp.corner] = (cornerTotal[emp.corner] || 0) + 1;
+    });
+
     // Phase 1: chronological greedy fill
     for (const date of dates) {
       const weekend = Model.isWeekend(date);
@@ -129,6 +135,26 @@ Hyumu.Scheduler = (function () {
       const remainingSlots = Math.max(0, allowedAdditionalOff - forcedOff.length);
       const candidates = freeEmployees.filter((emp) => !forcedIds.has(emp.id));
 
+      // Per-corner remaining OFF budget: locked/forced-off corner members already consumed some
+      const cornerOffUsed = {};
+      [...lockedEmployees.filter((e) => schedule[e.id][date].status === 'OFF'), ...forcedOff].forEach((emp) => {
+        if (emp.corner) cornerOffUsed[emp.corner] = (cornerOffUsed[emp.corner] || 0) + 1;
+      });
+      const cornerAllowedOff = {};
+      Object.keys(cornerTotal).forEach((corner) => {
+        cornerAllowedOff[corner] = Math.max(0, cornerTotal[corner] - (cornerMinStaff[corner] || 0));
+      });
+      Object.entries(cornerOffUsed).forEach(([corner, used]) => {
+        if (cornerAllowedOff[corner] != null && used > cornerAllowedOff[corner]) {
+          conflicts.push({
+            date,
+            type: 'CORNER_MIN_STAFF_VIOLATION',
+            message: `${date}: 고정/수동/강제 휴무만으로 '${corner}' 코너 최소 인원(${cornerMinStaff[corner] || 0}명)을 채울 수 없습니다.`,
+            employeeIds: []
+          });
+        }
+      });
+
       candidates.sort((a, b) => {
         const deficitA = target[a.id] - totalOff[a.id];
         const deficitB = target[b.id] - totalOff[b.id];
@@ -142,8 +168,21 @@ Hyumu.Scheduler = (function () {
         return employees.indexOf(a) - employees.indexOf(b);
       });
 
-      candidates.slice(0, remainingSlots).forEach((emp) => setCell(schedule, emp.id, date, 'OFF', 'AUTO_FAIRNESS'));
-      candidates.slice(remainingSlots).forEach((emp) => setCell(schedule, emp.id, date, 'WORK', 'AUTO'));
+      const chosenOff = [];
+      for (const emp of candidates) {
+        if (chosenOff.length >= remainingSlots) break;
+        const corner = emp.corner;
+        if (corner && cornerAllowedOff[corner] != null) {
+          const used = cornerOffUsed[corner] || 0;
+          if (used >= cornerAllowedOff[corner]) continue;
+        }
+        chosenOff.push(emp);
+        if (corner) cornerOffUsed[corner] = (cornerOffUsed[corner] || 0) + 1;
+      }
+      const chosenOffIds = new Set(chosenOff.map((e) => e.id));
+
+      candidates.filter((emp) => chosenOffIds.has(emp.id)).forEach((emp) => setCell(schedule, emp.id, date, 'OFF', 'AUTO_FAIRNESS'));
+      candidates.filter((emp) => !chosenOffIds.has(emp.id)).forEach((emp) => setCell(schedule, emp.id, date, 'WORK', 'AUTO'));
 
       for (const emp of employees) {
         const cell = schedule[emp.id][date];

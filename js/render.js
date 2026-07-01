@@ -124,6 +124,17 @@ Hyumu.Render = (function () {
             <option value="AFTERNOON" ${emp.shiftPreference === 'AFTERNOON' ? 'selected' : ''}>오후만</option>
           </select>
         </div>
+        <div class="shift-pref-row">
+          <label class="hint">코너</label>
+          <select class="emp-corner" data-id="${emp.id}">
+            <option value="" ${!emp.corner ? 'selected' : ''}>미지정</option>
+            ${Object.entries(Model.CORNER_GROUPS).map(([group, corners]) => `
+              <optgroup label="${esc(group)}">
+                ${corners.map((c) => `<option value="${esc(c)}" ${emp.corner === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+              </optgroup>
+            `).join('')}
+          </select>
+        </div>
         <div class="specific-off">
           <input type="date" class="emp-date-input" data-id="${emp.id}">
           <div class="date-chips">
@@ -156,6 +167,9 @@ Hyumu.Render = (function () {
     );
     container.querySelectorAll('.emp-shift-pref').forEach((select) =>
       select.addEventListener('change', () => handlers.onUpdateShiftPreference(select.dataset.id, select.value))
+    );
+    container.querySelectorAll('.emp-corner').forEach((select) =>
+      select.addEventListener('change', () => handlers.onUpdateCorner(select.dataset.id, select.value))
     );
     container.querySelectorAll('.emp-date-input').forEach((input) =>
       input.addEventListener('change', () => {
@@ -220,6 +234,20 @@ Hyumu.Render = (function () {
         </details>
 
         <details class="rule-details">
+          <summary>코너별 최소 근무 인원 (선택)</summary>
+          <div class="weekday-overrides">
+            ${Object.entries(Model.CORNER_GROUPS).flatMap(([group, corners]) => corners).map((corner) => `
+              <label class="weekday-override">
+                ${esc(corner)}
+                <input type="number" min="0" class="rule-corner-override" data-corner="${esc(corner)}"
+                  value="${rules.minStaffByCorner && rules.minStaffByCorner[corner] != null ? rules.minStaffByCorner[corner] : ''}"
+                  placeholder="0">
+              </label>
+            `).join('')}
+          </div>
+        </details>
+
+        <details class="rule-details">
           <summary>특정 날짜 최소 근무 인원 예외 (선택)</summary>
           <div class="date-override-add">
             <input type="date" id="rule-date-input">
@@ -255,6 +283,11 @@ Hyumu.Render = (function () {
     container.querySelectorAll('.rule-weekday-override').forEach((input) =>
       input.addEventListener('change', () =>
         handlers.onUpdateWeekdayOverride(Number(input.dataset.wd), input.value === '' ? null : Number(input.value))
+      )
+    );
+    container.querySelectorAll('.rule-corner-override').forEach((input) =>
+      input.addEventListener('change', () =>
+        handlers.onUpdateCornerMinStaff(input.dataset.corner, input.value === '' ? null : Number(input.value))
       )
     );
     container.querySelector('#btn-add-date-rule').addEventListener('click', () => {

@@ -36,8 +36,13 @@ Hyumu.Model = (function () {
     return `${year}-${pad2(month)}`;
   }
 
+  const CORNER_GROUPS = {
+    '문구': ['기프트', '학용', '필기구'],
+    '서적': ['인문', '기술', '외국어', '아동', '소설', '경제']
+  };
+
   function createEmployee(id, name) {
-    return { id, name, recurringOff: [], specificOff: [], shiftPreference: 'ANY' };
+    return { id, name, recurringOff: [], specificOff: [], shiftPreference: 'ANY', corner: '' };
   }
 
   function defaultRules() {
@@ -48,7 +53,8 @@ Hyumu.Model = (function () {
       maxConsecutiveWorkDays: 5,
       minRestPerWeekWindow: false,
       minMorningStaff: 0,
-      minAfternoonStaff: 0
+      minAfternoonStaff: 0,
+      minStaffByCorner: {}
     };
   }
 
@@ -85,6 +91,7 @@ Hyumu.Model = (function () {
   return {
     WEEKDAY_LABELS,
     SHIFT_LABELS,
+    CORNER_GROUPS,
     pad2,
     daysInMonth,
     dateISO,
