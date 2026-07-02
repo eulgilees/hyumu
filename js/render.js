@@ -85,10 +85,28 @@ Hyumu.Render = (function () {
     }
     renderMonth();
 
+    popup.style.position = 'fixed';
     const rect = anchorEl.getBoundingClientRect();
-    popup.style.position = 'absolute';
-    popup.style.top = `${window.scrollY + rect.bottom + 6}px`;
-    popup.style.left = `${window.scrollX + rect.left}px`;
+    const margin = 8;
+    const popupW = popup.offsetWidth;
+    const popupH = popup.offsetHeight;
+
+    let left = rect.left;
+    if (left + popupW > window.innerWidth - margin) {
+      left = window.innerWidth - margin - popupW;
+    }
+    if (left < margin) left = margin;
+
+    let top = rect.bottom + 6;
+    if (top + popupH > window.innerHeight - margin) {
+      const above = rect.top - 6 - popupH;
+      top = above >= margin ? above : Math.max(margin, window.innerHeight - margin - popupH);
+    }
+
+    popup.style.left = `${left}px`;
+    popup.style.top = `${top}px`;
+    popup.style.maxHeight = `${window.innerHeight - margin * 2}px`;
+    popup.style.overflowY = 'auto';
 
     setTimeout(() => document.addEventListener('mousedown', handleOutsideCalendarClick, true), 0);
   }
