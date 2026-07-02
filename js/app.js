@@ -214,6 +214,12 @@ Hyumu.App = (function () {
       emp.shiftPreference = value;
       await save();
     },
+    async onUpdateEdgeShiftPreference(id, value) {
+      const emp = doc.employees.find((e) => e.id === id);
+      if (!emp) return;
+      emp.edgeShiftPreference = value;
+      await save();
+    },
     async onUpdateCorners(id, corners) {
       const emp = doc.employees.find((e) => e.id === id);
       if (!emp) return;

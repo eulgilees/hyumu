@@ -122,7 +122,7 @@ Hyumu.Model = (function () {
   };
 
   function createEmployee(id, name) {
-    return { id, name, recurringOff: [], specificOff: [], specificOffTypes: {}, shiftPreference: 'ANY', corner: '', corners: [] };
+    return { id, name, recurringOff: [], specificOff: [], specificOffTypes: {}, shiftPreference: 'ANY', corner: '', corners: [], edgeShiftPreference: false };
   }
 
   function leaveTypeOf(emp, dateStr) {

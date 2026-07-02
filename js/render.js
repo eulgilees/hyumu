@@ -254,6 +254,12 @@ Hyumu.Render = (function () {
             <option value="AFTERNOON" ${emp.shiftPreference === 'AFTERNOON' ? 'selected' : ''}>오후만</option>
           </select>
         </div>
+        <div class="shift-pref-row">
+          <label class="corner-filter-check">
+            <input type="checkbox" class="emp-edge-shift-pref" data-id="${emp.id}" ${emp.edgeShiftPreference ? 'checked' : ''}>
+            쉬는 날 전엔 오전, 복귀날엔 오후 선호
+          </label>
+        </div>
         <div class="shift-pref-row emp-corner-row">
           <label class="hint">코너 (여러 개 담당 가능)</label>
           <div class="emp-corner-checks">
@@ -344,6 +350,9 @@ Hyumu.Render = (function () {
     );
     container.querySelectorAll('.emp-shift-pref').forEach((select) =>
       select.addEventListener('change', () => handlers.onUpdateShiftPreference(select.dataset.id, select.value))
+    );
+    container.querySelectorAll('.emp-edge-shift-pref').forEach((cb) =>
+      cb.addEventListener('change', () => handlers.onUpdateEdgeShiftPreference(cb.dataset.id, cb.checked))
     );
     container.querySelectorAll('.emp-corner-check').forEach((cb) =>
       cb.addEventListener('change', () => {

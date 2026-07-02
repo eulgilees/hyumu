@@ -477,12 +477,29 @@ Hyumu.Scheduler = (function () {
     });
   }
 
+  // Some employees prefer the "짧은 근무" shift right at the edge of a rest day: morning shift
+  // on the day right before they're off (so their afternoon is already free), and afternoon
+  // shift on the day right after returning from off (a lighter re-entry than an early morning).
+  // Returns -1 (wants morning), 1 (wants afternoon), or 0 (no preference / not applicable).
+  function edgeShiftPreference(emp, date, dates, schedule) {
+    if (!emp.edgeShiftPreference) return 0;
+    const idx = dates.indexOf(date);
+    const nextDate = dates[idx + 1];
+    const prevDate = dates[idx - 1];
+    const nextOff = nextDate && schedule[emp.id][nextDate] && schedule[emp.id][nextDate].status === 'OFF';
+    const prevOff = prevDate && schedule[emp.id][prevDate] && schedule[emp.id][prevDate].status === 'OFF';
+    if (nextOff && !prevOff) return -1;
+    if (prevOff && !nextOff) return 1;
+    return 0;
+  }
+
   function assignShifts(schedule, employees, dates, rules, conflicts) {
     const minMorning = rules.minMorningStaff || 0;
     const minAfternoon = rules.minAfternoonStaff || 0;
     const cornerShiftMin = rules.minStaffByCorner || {};
     const hasCornerShiftReq = Object.values(cornerShiftMin).some((req) => (req.morning || 0) > 0 || (req.afternoon || 0) > 0);
-    if (minMorning === 0 && minAfternoon === 0 && !hasCornerShiftReq && !employees.some((e) => e.shiftPreference !== 'ANY')) {
+    const hasEdgePreference = employees.some((e) => e.edgeShiftPreference);
+    if (minMorning === 0 && minAfternoon === 0 && !hasCornerShiftReq && !hasEdgePreference && !employees.some((e) => e.shiftPreference !== 'ANY')) {
       return;
     }
 
@@ -516,6 +533,20 @@ Hyumu.Scheduler = (function () {
 
       const byMorningNeedAsc = (a, b) =>
         (morningCount[a.id] - afternoonCount[a.id]) - (morningCount[b.id] - afternoonCount[b.id]);
+
+      // Edge-of-rest-day preference takes priority over the plain morning/afternoon balance
+      // when picking among the flexible pool (not the hard corner-minimum picks above), since
+      // it's a "웬만하면" soft preference the employee opted into, not a hard requirement.
+      const byMorningPreferenceThenNeed = (a, b) => {
+        const prefDiff = edgeShiftPreference(a, date, dates, schedule) - edgeShiftPreference(b, date, dates, schedule);
+        if (prefDiff !== 0) return prefDiff;
+        return byMorningNeedAsc(a, b);
+      };
+      const byAfternoonPreferenceThenNeed = (a, b) => {
+        const prefDiff = edgeShiftPreference(b, date, dates, schedule) - edgeShiftPreference(a, date, dates, schedule);
+        if (prefDiff !== 0) return prefDiff;
+        return byMorningNeedAsc(b, a);
+      };
 
       // Corner-level minimums are satisfied first, pulling from that corner's flexible pool only
       Object.entries(cornerShiftMin).forEach(([corner, req]) => {
@@ -574,12 +605,12 @@ Hyumu.Scheduler = (function () {
         });
       }
 
-      flexible.sort(byMorningNeedAsc);
+      flexible.sort(byMorningPreferenceThenNeed);
       const chosenMorning = flexible.slice(0, needMorning);
       const chosenMorningIds = new Set(chosenMorning.map((e) => e.id));
       const afterMorningPick = flexible.filter((e) => !chosenMorningIds.has(e.id));
 
-      afterMorningPick.sort((a, b) => byMorningNeedAsc(b, a));
+      afterMorningPick.sort(byAfternoonPreferenceThenNeed);
       const chosenAfternoon = afterMorningPick.slice(0, needAfternoon);
       const chosenAfternoonIds = new Set(chosenAfternoon.map((e) => e.id));
       const leftover = afterMorningPick.filter((e) => !chosenAfternoonIds.has(e.id));
@@ -589,8 +620,9 @@ Hyumu.Scheduler = (function () {
 
       leftover.sort(byMorningNeedAsc);
       for (const e of leftover) {
+        const pref = edgeShiftPreference(e, date, dates, schedule);
         const diff = morningCount[e.id] - afternoonCount[e.id];
-        const assignMorning = diff < 0 || (diff === 0 && dayMorningCount <= dayAfternoonCount);
+        const assignMorning = pref !== 0 ? pref < 0 : (diff < 0 || (diff === 0 && dayMorningCount <= dayAfternoonCount));
         if (assignMorning) {
           chosenMorning.push(e);
           dayMorningCount++;
