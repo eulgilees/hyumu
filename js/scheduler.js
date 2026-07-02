@@ -528,10 +528,14 @@ Hyumu.Scheduler = (function () {
         let working = deptEmps.filter((e) => schedule[e.id][date].status === 'WORK').length;
         if (working >= req) return;
 
+        // AUTO_FORCED is a hard consecutive-work-cap rest day, not a discretionary fairness one —
+        // pulling it back to WORK would push that person past their cap, which is exactly the
+        // real-world limit this exists to prevent (사장님 지시: "연속근무제한이 왜 문제라는거니 ...
+        // 무조건 휴무가 먼저"). Only BASE/MANUAL were excluded before; AUTO_FORCED must be too.
         const availableLeaders = partLeaders
           .filter((leader) => {
             const cell = schedule[leader.id][date];
-            return cell.status === 'OFF' && cell.source !== 'BASE' && cell.source !== 'MANUAL';
+            return cell.status === 'OFF' && cell.source !== 'BASE' && cell.source !== 'MANUAL' && cell.source !== 'AUTO_FORCED';
           })
           .sort((a, b) => offRemaining[b.id] - offRemaining[a.id]);
 
