@@ -283,13 +283,44 @@ Hyumu.Scheduler = (function () {
     }
 
     rebalanceRedDays(schedule, employees, redDates, dates, effectiveCap, fairnessRedDayOff, conflicts);
+    // Recompute weekdayOff straight from the schedule (not by subtracting fairnessRedDayOff
+    // from the pre-rebalance fairnessOff) — rebalanceRedDays just swapped OFF/WORK cells on
+    // red days, so that subtraction would use a stale fairnessOff and desync from reality.
     const weekdayDates = dates.filter((date) => !(Model.isWeekend(date) || Model.isRedDay(date)));
     const weekdayOff = {};
     employees.forEach((emp) => {
-      weekdayOff[emp.id] = fairnessOff[emp.id] - fairnessRedDayOff[emp.id];
+      let count = 0;
+      for (const date of weekdayDates) {
+        const cell = schedule[emp.id][date];
+        if (cell.status === 'OFF' && !isExemptLockedOff(emp, date, schedule)) count++;
+      }
+      weekdayOff[emp.id] = count;
     });
     rebalance(schedule, employees, weekdayDates, dates, effectiveCap, weekdayOff, conflicts);
     assignShifts(schedule, employees, dates, rules, conflicts);
+
+    // Weekday and red-day rest are each balanced to within 1 day *within their own dimension*,
+    // but that doesn't guarantee the combined monthly total is close for everyone (e.g. the
+    // consecutive-work cap can block a weekday swap that would've closed the gap). Surface it
+    // explicitly so an unresolved overall imbalance isn't silently invisible to the user.
+    let maxTotalOff = -Infinity;
+    let minTotalOff = Infinity;
+    employees.forEach((emp) => {
+      let count = 0;
+      for (const date of dates) {
+        if (schedule[emp.id][date].status === 'OFF' && !isExemptLockedOff(emp, date, schedule)) count++;
+      }
+      maxTotalOff = Math.max(maxTotalOff, count);
+      minTotalOff = Math.min(minTotalOff, count);
+    });
+    if (maxTotalOff - minTotalOff > 1) {
+      conflicts.push({
+        date: null,
+        type: 'IMBALANCE_NOTICE',
+        message: `전체 휴무일수를 완전한 균형으로 맞추지 못했습니다 (최대 ${maxTotalOff}일, 최소 ${minTotalOff}일). 연속 근무 제한 등으로 더 이상 스왑할 수 없는 경우입니다.`,
+        employeeIds: []
+      });
+    }
 
     doc.schedule = schedule;
     doc.conflicts = conflicts;
