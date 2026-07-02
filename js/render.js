@@ -42,6 +42,27 @@ Hyumu.Render = (function () {
     openCalendarPopup = popup;
     popup.querySelector('#conflict-popup-close').addEventListener('click', () => closeCalendarPopup());
 
+    const dragHandle = popup.querySelector('.cc-header');
+    dragHandle.classList.add('conflict-popup-drag-handle');
+    dragHandle.addEventListener('mousedown', (e) => {
+      if (e.target.closest('#conflict-popup-close')) return;
+      e.preventDefault();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startLeft = popup.offsetLeft;
+      const startTop = popup.offsetTop;
+      function onMove(moveEvent) {
+        popup.style.left = `${startLeft + (moveEvent.clientX - startX)}px`;
+        popup.style.top = `${startTop + (moveEvent.clientY - startY)}px`;
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
     popup.style.position = 'fixed';
     const rect = anchorEl.getBoundingClientRect();
     const margin = 8;

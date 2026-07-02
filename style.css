@@ -700,6 +700,11 @@ th.conflict-col:hover {
   background: #fdecea;
 }
 
+.conflict-popup-drag-handle {
+  cursor: move;
+  user-select: none;
+}
+
 .conflict-popup-title {
   font-size: 15px;
   font-weight: 700;
