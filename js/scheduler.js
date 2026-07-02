@@ -327,31 +327,27 @@ Hyumu.Scheduler = (function () {
       }
       weekdayOff[emp.id] = count;
     });
-    rebalance(schedule, employees, weekdayDates, dates, effectiveCap, weekdayOff, conflicts);
-    assignShifts(schedule, employees, dates, rules, conflicts);
+    rebalance(schedule, employees, weekdayDates, dates, effectiveCap, weekdayOff, conflicts, true);
 
-    // Weekday and red-day rest are each balanced to within 1 day *within their own dimension*,
-    // but that doesn't guarantee the combined monthly total is close for everyone (e.g. the
-    // consecutive-work cap can block a weekday swap that would've closed the gap). Surface it
-    // explicitly so an unresolved overall imbalance isn't silently invisible to the user.
-    let maxTotalOff = -Infinity;
-    let minTotalOff = Infinity;
+    // rebalance() above only trades OFF/WORK on the *same date* between two people, which stays
+    // staffing-neutral for that day but can leave gaps unfixed simply because the two people who
+    // need to trade never happen to have opposite status on the same date. Since the target
+    // off-days count outranks staffing (사장님 지시), run one more pass that decouples the swap —
+    // take a rest day off the highest person on whatever date works for them, and give a rest day
+    // to the lowest person on whatever date works for them, independently. This reaches every
+    // fixable gap the paired swaps couldn't, at the cost of possibly dipping staffing further on
+    // the lowest person's chosen date (already flagged only informationally, not blocked).
+    const monthOff = {};
     employees.forEach((emp) => {
       let count = 0;
       for (const date of dates) {
         if (schedule[emp.id][date].status === 'OFF' && !isExemptLockedOff(emp, date, schedule)) count++;
       }
-      maxTotalOff = Math.max(maxTotalOff, count);
-      minTotalOff = Math.min(minTotalOff, count);
+      monthOff[emp.id] = count;
     });
-    if (maxTotalOff - minTotalOff > 1) {
-      conflicts.push({
-        date: null,
-        type: 'IMBALANCE_NOTICE',
-        message: `전체 휴무일수를 완전한 균형으로 맞추지 못했습니다 (최대 ${maxTotalOff}일, 최소 ${minTotalOff}일). 연속 근무 제한 등으로 더 이상 스왑할 수 없는 경우입니다.`,
-        employeeIds: []
-      });
-    }
+    rebalanceDecoupled(schedule, employees, dates, effectiveCap, monthOff, conflicts);
+
+    assignShifts(schedule, employees, dates, rules, conflicts);
 
     doc.schedule = schedule;
     doc.conflicts = conflicts;
@@ -490,7 +486,7 @@ Hyumu.Scheduler = (function () {
 
   // swapDates: which dates are eligible to swap on. allDates: the full month, used to
   // correctly measure consecutive-workday streaks across day boundaries not in swapDates.
-  function rebalance(schedule, employees, swapDates, allDates, effectiveCap, offCount, conflicts) {
+  function rebalance(schedule, employees, swapDates, allDates, effectiveCap, offCount, conflicts, silent) {
     if (employees.length < 2) return;
     const maxIterations = employees.length * swapDates.length * 4;
     let iterations = 0;
@@ -548,6 +544,8 @@ Hyumu.Scheduler = (function () {
       if (!swapped) break;
     }
 
+    if (silent) return;
+
     let maxOff = -Infinity;
     let minOff = Infinity;
     for (const emp of employees) {
@@ -559,6 +557,93 @@ Hyumu.Scheduler = (function () {
         date: null,
         type: 'IMBALANCE_NOTICE',
         message: `평일 휴무를 완전한 균형으로 맞추지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일).`,
+        employeeIds: []
+      });
+    }
+  }
+
+  // Decoupled final rebalance: unlike rebalance() above, the day taken from the highest person
+  // and the day given to the lowest person don't have to be the same date. This closes gaps that
+  // same-date swapping can't reach, since the target off-days count matters more than keeping
+  // any single day's staffing untouched.
+  function rebalanceDecoupled(schedule, employees, dates, effectiveCap, offCount, conflicts) {
+    if (employees.length < 2) return;
+    const maxIterations = employees.length * dates.length * 4;
+    let iterations = 0;
+
+    function statusOn(empId, date) {
+      return schedule[empId][date].status;
+    }
+    function sourceOn(empId, date) {
+      return schedule[empId][date].source;
+    }
+    function wouldExceedCapIfWork(empId, date) {
+      const idx = dates.indexOf(date);
+      let back = 0;
+      for (let i = idx - 1; i >= 0 && statusOn(empId, dates[i]) === 'WORK'; i--) back++;
+      let fwd = 0;
+      for (let i = idx + 1; i < dates.length && statusOn(empId, dates[i]) === 'WORK'; i++) fwd++;
+      return back + fwd + 1 > effectiveCap;
+    }
+
+    while (iterations < maxIterations) {
+      iterations++;
+      const sortedDesc = [...employees].sort((a, b) => offCount[b.id] - offCount[a.id]);
+      const sortedAsc = [...employees].sort((a, b) => offCount[a.id] - offCount[b.id]);
+      const lowestOff = offCount[sortedAsc[0].id];
+
+      let swapped = false;
+      outer: for (const eMax of sortedDesc) {
+        if (offCount[eMax.id] - lowestOff <= 1) break;
+
+        let reduceDate = null;
+        for (const date of dates) {
+          if (
+            sourceOn(eMax.id, date) === 'AUTO_FAIRNESS' &&
+            statusOn(eMax.id, date) === 'OFF' &&
+            !wouldExceedCapIfWork(eMax.id, date)
+          ) {
+            reduceDate = date;
+            break;
+          }
+        }
+        if (!reduceDate) continue;
+
+        for (const eMin of sortedAsc) {
+          if (eMin.id === eMax.id) continue;
+          if (offCount[eMax.id] - offCount[eMin.id] <= 1) continue;
+
+          let increaseDate = null;
+          for (const date of dates) {
+            if (sourceOn(eMin.id, date) === 'AUTO' && statusOn(eMin.id, date) === 'WORK') {
+              increaseDate = date;
+              break;
+            }
+          }
+          if (!increaseDate) continue;
+
+          schedule[eMax.id][reduceDate] = { status: 'WORK', source: 'AUTO' };
+          schedule[eMin.id][increaseDate] = { status: 'OFF', source: 'AUTO_FAIRNESS' };
+          offCount[eMax.id]--;
+          offCount[eMin.id]++;
+          swapped = true;
+          break outer;
+        }
+      }
+      if (!swapped) break;
+    }
+
+    let maxOff = -Infinity;
+    let minOff = Infinity;
+    for (const emp of employees) {
+      maxOff = Math.max(maxOff, offCount[emp.id]);
+      minOff = Math.min(minOff, offCount[emp.id]);
+    }
+    if (maxOff - minOff > 1) {
+      conflicts.push({
+        date: null,
+        type: 'IMBALANCE_NOTICE',
+        message: `전체 휴무일수를 완전한 균형으로 맞추지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일). 연속 근무 제한 때문에 더 이상 조정할 수 없는 경우입니다.`,
         employeeIds: []
       });
     }
