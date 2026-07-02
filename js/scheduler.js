@@ -518,7 +518,7 @@ Hyumu.Scheduler = (function () {
     // corner is resting on, even though the cap would allow one more) just sits unused instead of
     // going to whoever's fallen furthest behind their corner-mates. This pass spends exactly that
     // leftover slack, evening the group out as far as the shared cap allows.
-    fillCornerSlack(schedule, employees, allEmployees, dates, cornerAllowedOff, monthOff, excludeDatesForSlack);
+    fillCornerSlack(schedule, employees, allEmployees, dates, cornerAllowedOff, monthOff, target, excludeDatesForSlack);
 
     // 목표 휴무일수는 근사치가 아니라 반드시 정확히 맞아야 하는 법정 최소치다(사장님 지시:
     // "가깝게? 그거 안돼... 법적으로 지켜야할 사항이야") — fillCornerSlack까지 끝난 뒤 최종
@@ -1060,11 +1060,15 @@ Hyumu.Scheduler = (function () {
   }
 
   // Spends leftover corner-cap slack (a day nobody in a capped corner is resting, even though
-  // the cap would allow one more) on whoever in that corner currently has the fewest OFF days
-  // this month — repeated until each capped corner's own members are within 1 day of each other
-  // or no slack/candidates remain. Converting a WORK day to OFF never violates that person's own
-  // consecutive-work cap (only the reverse direction can), so no personalCap check is needed here.
-  function fillCornerSlack(schedule, employees, allEmployees, dates, cornerAllowedOff, offCount, excludeDates) {
+  // the cap would allow one more) on whoever in that corner is furthest below their OWN target —
+  // target-relative, not just peer-relative, because if every member of a corner is uniformly
+  // under target (e.g. all 6 people in a 3-corner group sitting at 8 with a 9-day target), a
+  // purely peer-relative "even them out" check sees them as already balanced and does nothing,
+  // even with plenty of unused slack sitting right there (confirmed on real data: a 6-person
+  // corner group had slack on 29 of 31 days yet 4 of them stayed a day under target). Converting
+  // a WORK day to OFF never violates that person's own consecutive-work cap (only the reverse
+  // direction can), so no personalCap check is needed here.
+  function fillCornerSlack(schedule, employees, allEmployees, dates, cornerAllowedOff, offCount, target, excludeDates) {
     const corners = Object.keys(cornerAllowedOff).filter((c) => cornerAllowedOff[c] != null);
     if (corners.length === 0) return;
     const maxIterations = employees.length * dates.length * 2;
@@ -1076,10 +1080,15 @@ Hyumu.Scheduler = (function () {
       for (const corner of corners) {
         const members = employees.filter((e) => Model.employeeCorners(e).includes(corner));
         if (members.length < 2) continue;
-        const sorted = [...members].sort((a, b) => offCount[a.id] - offCount[b.id]);
+        const underTarget = members.filter((e) => offCount[e.id] < target[e.id]);
+        const candidatePool = underTarget.length > 0 ? underTarget : members;
+        const sorted = [...candidatePool].sort((a, b) => offCount[a.id] - offCount[b.id]);
         const lowest = sorted[0];
-        const highest = sorted[sorted.length - 1];
-        if (offCount[highest.id] - offCount[lowest.id] <= 1) continue;
+        const highest = [...members].sort((a, b) => offCount[b.id] - offCount[a.id])[0];
+        // Peer-relative fallback (spread > 1) only kicks in once nobody's under target anymore —
+        // otherwise skip it entirely so this loop keeps lifting under-target members instead of
+        // stopping the moment peers merely look "close enough" to each other.
+        if (underTarget.length === 0 && offCount[highest.id] - offCount[lowest.id] <= 1) continue;
         for (const date of dates) {
           // Skip dates a sibling department is already short-staffed on — those are exactly the
           // dates backfillPartLeaders will need to pull someone from this corner back to WORK,
