@@ -33,7 +33,11 @@ Hyumu.Scheduler = (function () {
     const cornerOffToday = {};
     employees.forEach((other) => {
       if (other.id === emp.id) return;
-      if (schedule[other.id][date].status !== 'OFF') return;
+      // `other` may belong to a department group that hasn't run its Phase 1 fill yet (groups
+      // run sequentially), so its cell for this date can still be unset — treat that as "not
+      // off" rather than crashing; that group's own Phase 1 will account for it when it runs.
+      const otherCell = schedule[other.id][date];
+      if (!otherCell || otherCell.status !== 'OFF') return;
       Model.employeeCorners(other).forEach((c) => {
         cornerOffToday[c] = (cornerOffToday[c] || 0) + 1;
       });
