@@ -395,10 +395,10 @@ Hyumu.Render = (function () {
           <input type="number" id="rule-long-break-days" min="2" value="${rules.longBreakDays != null ? rules.longBreakDays : ''}" placeholder="예: 4">
         </div>
         <div class="field-row">
-          <label>그 앞뒤로 최대 며칠까지 근무 가능</label>
+          <label>그 직원은 최대 며칠까지 근무 가능</label>
           <input type="number" id="rule-extended-work-cap" min="1" value="${rules.extendedWorkCap != null ? rules.extendedWorkCap : ''}" placeholder="예: 5">
         </div>
-        <p class="hint">직원이 확정된 휴무(연차 등)를 위 일수 이상 연달아 쓰면, 그 앞뒤 근무일에는 아래 "최대 연속 근무일수" 대신 이 값까지 허용해요. 긴 휴식을 위해 하루 더 일하는 걸 감안하는 규칙이에요. 비워두면 적용 안 함.</p>
+        <p class="hint">직원이 확정된 휴무(연차 등)를 위 일수 이상 연달아 쓰면, 그 달 전체에서 그 직원은 아래 "최대 연속 근무일수" 대신 이 값까지 허용해요 (휴무 블록 앞뒤에만 국한되지 않고 그 달 전체에 적용). 긴 휴식을 위해 다른 날 하루 더 일하는 걸 감안하는 규칙이에요. 비워두면 적용 안 함.</p>
         <div class="field-row">
           <label>기본 최소 근무 인원</label>
           <input type="number" id="rule-min-staff" min="0" value="${rules.minStaffDefault}">
