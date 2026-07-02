@@ -25,6 +25,49 @@ Hyumu.Render = (function () {
     }
   }
 
+  function openConflictPopup(anchorEl, date, messages) {
+    closeCalendarPopup();
+    const popup = document.createElement('div');
+    popup.className = 'custom-calendar-popup conflict-popup';
+    popup.innerHTML = `
+      <div class="cc-header">
+        <span class="cc-title conflict-popup-title">${date} 문제</span>
+        <button type="button" class="cc-nav" id="conflict-popup-close">×</button>
+      </div>
+      <ul class="conflict-popup-list">
+        ${messages.map((m) => `<li>${esc(m)}</li>`).join('')}
+      </ul>
+    `;
+    document.body.appendChild(popup);
+    openCalendarPopup = popup;
+    popup.querySelector('#conflict-popup-close').addEventListener('click', () => closeCalendarPopup());
+
+    popup.style.position = 'fixed';
+    const rect = anchorEl.getBoundingClientRect();
+    const margin = 8;
+    const popupW = popup.offsetWidth;
+    const popupH = popup.offsetHeight;
+
+    let left = rect.left;
+    if (left + popupW > window.innerWidth - margin) {
+      left = window.innerWidth - margin - popupW;
+    }
+    if (left < margin) left = margin;
+
+    let top = rect.bottom + 6;
+    if (top + popupH > window.innerHeight - margin) {
+      const above = rect.top - 6 - popupH;
+      top = above >= margin ? above : Math.max(margin, window.innerHeight - margin - popupH);
+    }
+
+    popup.style.left = `${left}px`;
+    popup.style.top = `${top}px`;
+    popup.style.maxHeight = `${window.innerHeight - margin * 2}px`;
+    popup.style.overflowY = 'auto';
+
+    setTimeout(() => document.addEventListener('mousedown', handleOutsideCalendarClick, true), 0);
+  }
+
   function openCustomCalendar(anchorEl, initialDateStr, onSelect, onSelectRange) {
     closeCalendarPopup();
     const today = new Date();
@@ -608,7 +651,8 @@ Hyumu.Render = (function () {
           const label = doc.rules.dateLabels && doc.rules.dateLabels[d];
           const labelHtml = label ? `<br><span class="date-label">${esc(label)}</span>` : '';
           const holidayHtml = holiday ? `<br><span class="holiday-label">${esc(holiday)}</span>` : '';
-          return `<th class="${weekendClass}${redClass}${confClass}">${day}<br><span class="wd-label">${Model.WEEKDAY_LABELS[wd]}</span>${holidayHtml}${labelHtml}</th>`;
+          const conflictAttr = conflictDates.has(d) ? ` data-conflict-date="${d}"` : '';
+          return `<th class="${weekendClass}${redClass}${confClass}"${conflictAttr}>${day}<br><span class="wd-label">${Model.WEEKDAY_LABELS[wd]}</span>${holidayHtml}${labelHtml}</th>`;
         }).join('')}
         <th class="total-col">휴무</th>
         <th class="total-col">오전</th>
@@ -688,6 +732,13 @@ Hyumu.Render = (function () {
       </section>
     `;
 
+    container.querySelectorAll('th[data-conflict-date]').forEach((th) => {
+      th.addEventListener('click', () => {
+        const date = th.dataset.conflictDate;
+        const messages = doc.conflicts.filter((c) => c.date === date).map((c) => c.message);
+        openConflictPopup(th, date, messages);
+      });
+    });
     container.querySelectorAll('.cal-cell').forEach((cell) => {
       cell.addEventListener('click', () => {
         if (cell.dataset.locked === '1') return;
