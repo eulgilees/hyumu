@@ -598,7 +598,7 @@ Hyumu.Render = (function () {
           offCount++;
           text = '휴';
         } else {
-          text = Model.SHIFT_LABELS[cell.shift] || '';
+          text = cell.shift === 'MORNING' ? '전' : cell.shift === 'AFTERNOON' ? '후' : '';
           shiftClass = cell.shift === 'MORNING' ? ' shift-morning' : cell.shift === 'AFTERNOON' ? ' shift-afternoon' : '';
           if (cell.shift === 'MORNING') morningCount++;
           else if (cell.shift === 'AFTERNOON') afternoonCount++;
