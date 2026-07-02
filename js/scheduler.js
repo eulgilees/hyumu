@@ -132,13 +132,33 @@ Hyumu.Scheduler = (function () {
       const groupRules = Object.assign({}, rules, deptRules[dept] || {});
       runGroupSchedule(deptEmployees[dept], groupRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal);
     });
+
+    // Dates where 문구/서적's own dedicated staff already falls short of their department
+    // minimum — these are exactly the dates backfillPartLeaders will later need to pull a 파트장
+    // into WORK on. Computed now (after 문구/서적 are scheduled, before 관리 is) so the 관리
+    // group's own slack-fill pass below can avoid spending a 파트장's extra rest day on one of
+    // these dates — otherwise slack-fill hands a day off to whoever's most behind, backfill then
+    // immediately takes it back (since with the "max 1 파트장 off/day" cap, whoever slack-fill
+    // picked is often the *only* 파트장 free to pull that day), and the two passes fight every
+    // regeneration instead of the group ever actually evening out.
+    const deptShortfallDates = new Set();
+    ['문구', '서적'].forEach((dept) => {
+      if (deptEmployees[dept].length === 0) return;
+      const groupRules = Object.assign({}, rules, deptRules[dept] || {});
+      dates.forEach((date) => {
+        const req = Math.max(Model.minStaffRequired(groupRules, date), (groupRules.minMorningStaff || 0) + (groupRules.minAfternoonStaff || 0));
+        const working = deptEmployees[dept].filter((e) => schedule[e.id][date].status === 'WORK').length;
+        if (working < req) deptShortfallDates.add(date);
+      });
+    });
+
     if (adminEmployees.length > 0) {
       // 관리(점장/파트장/영업지원)는 store-wide 최소인원 수치를 그대로 물려받으면 안 된다 —
       // 그 수치는 문구/서적처럼 여러 명 규모의 부서를 염두에 두고 정한 값이라, 관리 인원(대개
       // 1~3명)에 그대로 적용하면 매일 인원 부족으로 뜬다. 관리는 인원 하한 없이 목표
       // 휴무일수 페이스와 연속근무 제한만 따른다(점장은 상관없다는 사장님 지시).
       const adminRules = Object.assign({}, rules, { minStaffDefault: 0, minMorningStaff: 0, minAfternoonStaff: 0 });
-      runGroupSchedule(adminEmployees, adminRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal);
+      runGroupSchedule(adminEmployees, adminRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal, deptShortfallDates);
     }
 
     // 파트장은 어느 한 부서가 도저히 최소인원을 못 맞출 때 그 부서에 투입돼야 한다(사장님 지시).
@@ -156,7 +176,7 @@ Hyumu.Scheduler = (function () {
   // Runs the full Phase 1 greedy fill + rebalance passes for one self-contained pool of
   // employees (a department, or the 관리 catch-all), writing into the shared `schedule` and
   // `conflicts`. Everything here only ever looks at `groupEmployees` — no cross-group effects.
-  function runGroupSchedule(groupEmployees, rules, schedule, dates, conflicts, allEmployees, cornerAllowedOff, cornerMinStaffGlobal) {
+  function runGroupSchedule(groupEmployees, rules, schedule, dates, conflicts, allEmployees, cornerAllowedOff, cornerMinStaffGlobal, excludeDatesForSlack) {
     const n = groupEmployees.length;
     const employees = groupEmployees;
 
@@ -359,6 +379,13 @@ Hyumu.Scheduler = (function () {
           cornerOffUsed[c] = (cornerOffUsed[c] || 0) + 1;
         });
       });
+      // A sibling department is already short-staffed on this date, so every 파트장 needs to stay
+      // available for backfillPartLeaders rather than one of them taking rest here — pretend the
+      // 파트장 corner's OFF budget is already used up for today so Phase 1 doesn't pick one to rest,
+      // only to have backfillPartLeaders immediately pull them back to WORK anyway.
+      if (excludeDatesForSlack && excludeDatesForSlack.has(date) && cornerAllowedOff['파트장'] != null) {
+        cornerOffUsed['파트장'] = cornerAllowedOff['파트장'];
+      }
       Object.entries(cornerOffUsed).forEach(([corner, used]) => {
         if (cornerAllowedOff[corner] != null && used > cornerAllowedOff[corner]) {
           conflicts.push({
@@ -459,6 +486,15 @@ Hyumu.Scheduler = (function () {
       monthOff[emp.id] = count;
     });
     rebalanceDecoupled(schedule, employees, allEmployees, dates, personalCap, cornerAllowedOff, monthOff, target, conflicts);
+
+    // rebalanceDecoupled only ever moves a day from someone OVER target to someone UNDER — if a
+    // corner's shared cap is scarce enough that EVERYONE in it stays under target (e.g. 파트장:
+    // only 1 of 4 can rest per day, so the group can't reach 9 each even at full capacity), there's
+    // never an "over" person to take a day from, so leftover unused slack (a day nobody in that
+    // corner is resting on, even though the cap would allow one more) just sits unused instead of
+    // going to whoever's fallen furthest behind their corner-mates. This pass spends exactly that
+    // leftover slack, evening the group out as far as the shared cap allows.
+    fillCornerSlack(schedule, employees, allEmployees, dates, cornerAllowedOff, monthOff, excludeDatesForSlack);
   }
 
   // 파트장 backfill: for any date where a department's own dedicated staff can't meet its
@@ -468,6 +504,15 @@ Hyumu.Scheduler = (function () {
   function backfillPartLeaders(schedule, employees, deptEmployees, deptRules, rules, dates, conflicts) {
     const partLeaders = employees.filter((emp) => Model.employeeCorners(emp).includes('파트장'));
     if (partLeaders.length === 0) return;
+
+    // Track each leader's remaining OFF-day count (as already finalized by their own group's
+    // scheduling pass) and always pull from whoever currently has the MOST rest days left when
+    // a shortfall needs covering — otherwise a fixed iteration order always favors pulling the
+    // same person first, unevenly stripping their target off-days over the month.
+    const offRemaining = {};
+    partLeaders.forEach((leader) => {
+      offRemaining[leader.id] = dates.filter((d) => schedule[leader.id][d].status === 'OFF').length;
+    });
 
     ['문구', '서적'].forEach((dept) => {
       const deptEmps = deptEmployees[dept];
@@ -479,12 +524,17 @@ Hyumu.Scheduler = (function () {
         let working = deptEmps.filter((e) => schedule[e.id][date].status === 'WORK').length;
         if (working >= req) return;
 
-        for (const leader of partLeaders) {
+        const availableLeaders = partLeaders
+          .filter((leader) => {
+            const cell = schedule[leader.id][date];
+            return cell.status === 'OFF' && cell.source !== 'BASE' && cell.source !== 'MANUAL';
+          })
+          .sort((a, b) => offRemaining[b.id] - offRemaining[a.id]);
+
+        for (const leader of availableLeaders) {
           if (working >= req) break;
-          const cell = schedule[leader.id][date];
-          if (cell.source === 'BASE' || cell.source === 'MANUAL') continue;
-          if (cell.status !== 'OFF') continue;
           setCell(schedule, leader.id, date, 'WORK', 'AUTO');
+          offRemaining[leader.id]--;
           working++;
         }
 
@@ -498,6 +548,23 @@ Hyumu.Scheduler = (function () {
         }
       });
     });
+
+    if (partLeaders.length > 1) {
+      let maxOff = -Infinity;
+      let minOff = Infinity;
+      partLeaders.forEach((leader) => {
+        maxOff = Math.max(maxOff, offRemaining[leader.id]);
+        minOff = Math.min(minOff, offRemaining[leader.id]);
+      });
+      if (maxOff - minOff > 1) {
+        conflicts.push({
+          date: null,
+          type: 'IMBALANCE_NOTICE',
+          message: `파트장은 동시에 둘 이상 쉴 수 없다는 제약과 부서 최소 인원 보충 때문에, 휴무일수를 파트장끼리 완전히 고르게 나누지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일).`,
+          employeeIds: []
+        });
+      }
+    }
   }
 
   // Some employees prefer the "짧은 근무" shift right at the edge of a rest day: morning shift
@@ -905,6 +972,44 @@ Hyumu.Scheduler = (function () {
         message: `전체 휴무일수를 목표에 정확히 맞추지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일). 연속 근무 제한 때문에 더 이상 조정할 수 없는 경우입니다.`,
         employeeIds: []
       });
+    }
+  }
+
+  // Spends leftover corner-cap slack (a day nobody in a capped corner is resting, even though
+  // the cap would allow one more) on whoever in that corner currently has the fewest OFF days
+  // this month — repeated until each capped corner's own members are within 1 day of each other
+  // or no slack/candidates remain. Converting a WORK day to OFF never violates that person's own
+  // consecutive-work cap (only the reverse direction can), so no personalCap check is needed here.
+  function fillCornerSlack(schedule, employees, allEmployees, dates, cornerAllowedOff, offCount, excludeDates) {
+    const corners = Object.keys(cornerAllowedOff).filter((c) => cornerAllowedOff[c] != null);
+    if (corners.length === 0) return;
+    const maxIterations = employees.length * dates.length * 2;
+    let iterations = 0;
+    let changed = true;
+    while (changed && iterations < maxIterations) {
+      changed = false;
+      iterations++;
+      for (const corner of corners) {
+        const members = employees.filter((e) => Model.employeeCorners(e).includes(corner));
+        if (members.length < 2) continue;
+        const sorted = [...members].sort((a, b) => offCount[a.id] - offCount[b.id]);
+        const lowest = sorted[0];
+        const highest = sorted[sorted.length - 1];
+        if (offCount[highest.id] - offCount[lowest.id] <= 1) continue;
+        for (const date of dates) {
+          // Skip dates a sibling department is already short-staffed on — those are exactly the
+          // dates backfillPartLeaders will need to pull someone from this corner back to WORK,
+          // so granting rest here would just get reversed there.
+          if (excludeDates && excludeDates.has(date)) continue;
+          const cell = schedule[lowest.id][date];
+          if (!cell || cell.status !== 'WORK' || cell.source !== 'AUTO') continue;
+          if (wouldExceedCornerCap(schedule, allEmployees, cornerAllowedOff, lowest, date)) continue;
+          schedule[lowest.id][date] = { status: 'OFF', source: 'AUTO_FAIRNESS' };
+          offCount[lowest.id]++;
+          changed = true;
+          break;
+        }
+      }
     }
   }
 
