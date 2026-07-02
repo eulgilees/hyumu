@@ -102,6 +102,18 @@ Hyumu.Scheduler = (function () {
       });
     });
 
+    // Fairness group headcount: small sub-corners (e.g. 기프트/학용/필기구/디자인문구)
+    // are pooled together per Model.cornerFairnessGroup so red-day rest is shared
+    // across the whole pool rather than computed per tiny individual corner.
+    const fairnessGroupTotal = {};
+    employees.forEach((emp) => {
+      const corners = Model.employeeCorners(emp);
+      if (corners.length === 1) {
+        const key = Model.cornerFairnessGroup(corners[0]);
+        if (key) fairnessGroupTotal[key] = (fairnessGroupTotal[key] || 0) + 1;
+      }
+    });
+
     // Red-day (Sat/Sun/holiday) fairness: each employee should get an even share of
     // red-day OFF within their own corner, since red days are when the store needs
     // the most coverage and weekdays are when everyone rests anyway.
@@ -120,8 +132,13 @@ Hyumu.Scheduler = (function () {
     employees.forEach((emp) => {
       const corners = Model.employeeCorners(emp);
       let base;
-      if (corners.length === 1 && cornerTotal[corners[0]]) {
-        base = redDates.length / cornerTotal[corners[0]];
+      if (corners.length === 1) {
+        const key = Model.cornerFairnessGroup(corners[0]);
+        if (key && fairnessGroupTotal[key]) {
+          base = redDates.length / fairnessGroupTotal[key];
+        } else {
+          base = redDates.length / n;
+        }
       } else {
         base = redDates.length / n;
       }
@@ -468,7 +485,7 @@ Hyumu.Scheduler = (function () {
     const groups = {};
     employees.forEach((emp) => {
       const corners = Model.employeeCorners(emp);
-      const key = corners.length === 1 ? corners[0] : '__store__';
+      const key = corners.length === 1 ? Model.cornerFairnessGroup(corners[0]) || '__store__' : '__store__';
       if (!groups[key]) groups[key] = [];
       groups[key].push(emp);
     });

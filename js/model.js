@@ -135,6 +135,19 @@ Hyumu.Model = (function () {
     return [];
   }
 
+  // Fairness grouping for red-day (weekend/holiday) rest rotation: 문보장 is large
+  // enough (3 people) to rotate red-day rest on its own, but the other 문구 corners
+  // (기프트/학용/필기구/디자인문구) are each too small individually, so they're pooled
+  // together as one group. Same idea applies to 관리/서적 sub-corners.
+  function cornerFairnessGroup(corner) {
+    if (!corner) return null;
+    if (corner === '문보장') return '문보장';
+    for (const [groupName, corners] of Object.entries(CORNER_GROUPS)) {
+      if (corners.includes(corner)) return groupName;
+    }
+    return corner;
+  }
+
   function defaultRules() {
     return {
       minStaffDefault: 1,
@@ -187,6 +200,7 @@ Hyumu.Model = (function () {
     holidayName,
     isRedDay,
     employeeCorners,
+    cornerFairnessGroup,
     LEAVE_TYPES,
     leaveTypeOf,
     pad2,
