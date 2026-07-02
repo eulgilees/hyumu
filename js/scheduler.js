@@ -519,13 +519,20 @@ Hyumu.Scheduler = (function () {
 
       // Corner-level minimums are satisfied first, pulling from that corner's flexible pool only
       Object.entries(cornerShiftMin).forEach(([corner, req]) => {
-        const needM = req.morning || 0;
-        const needA = req.afternoon || 0;
+        let needM = req.morning || 0;
+        let needA = req.afternoon || 0;
         if (needM === 0 && needA === 0) return;
         const cornerWorking = workingToday.filter((e) => Model.employeeCorners(e).includes(corner));
         const cornerLockedM = lockedMorning.filter((e) => Model.employeeCorners(e).includes(corner)).length;
         const cornerLockedA = lockedAfternoon.filter((e) => Model.employeeCorners(e).includes(corner)).length;
         const cornerFlexible = flexible.filter((e) => Model.employeeCorners(e).includes(corner));
+
+        // 문보장은 오후에 손님이 더 많아서, 셋이 다 근무하는 날은 2명을 오후로 몰아준다
+        // (기본 오전1/오후1 최소치보다 더 필요할 때만 발동 — 인원이 3명 미만이면 그대로).
+        if (corner === '문보장' && cornerWorking.length >= 3) {
+          needA = Math.max(needA, 2);
+        }
+
         const remainM = Math.max(0, needM - cornerLockedM);
         const remainA = Math.max(0, needA - cornerLockedA);
 
