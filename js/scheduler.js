@@ -419,13 +419,17 @@ Hyumu.Scheduler = (function () {
           });
         }
 
-        cornerFlexible.sort(byMorningNeedAsc);
-        const pickM = cornerFlexible.slice(0, remainM);
-        const pickMIds = new Set(pickM.map((e) => e.id));
-        const remainingCornerFlex = cornerFlexible.filter((e) => !pickMIds.has(e.id));
-        remainingCornerFlex.sort((a, b) => byMorningNeedAsc(b, a));
-        const pickA = remainingCornerFlex.slice(0, remainA);
+        // When the corner is short-handed (not enough flexible people to cover both morning
+        // and afternoon minimums), afternoon takes priority — fill afternoon's need first,
+        // morning gets whoever's left. This means a single available person defaults to
+        // afternoon rather than morning.
+        cornerFlexible.sort((a, b) => byMorningNeedAsc(b, a));
+        const pickA = cornerFlexible.slice(0, remainA);
         const pickAIds = new Set(pickA.map((e) => e.id));
+        const remainingCornerFlex = cornerFlexible.filter((e) => !pickAIds.has(e.id));
+        remainingCornerFlex.sort(byMorningNeedAsc);
+        const pickM = remainingCornerFlex.slice(0, remainM);
+        const pickMIds = new Set(pickM.map((e) => e.id));
 
         flexible = flexible.filter((e) => !pickMIds.has(e.id) && !pickAIds.has(e.id));
         lockedMorning.push(...pickM);
