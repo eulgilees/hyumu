@@ -345,7 +345,7 @@ Hyumu.Scheduler = (function () {
       }
       monthOff[emp.id] = count;
     });
-    rebalanceDecoupled(schedule, employees, dates, effectiveCap, monthOff, conflicts);
+    rebalanceDecoupled(schedule, employees, dates, effectiveCap, monthOff, target, conflicts);
 
     assignShifts(schedule, employees, dates, rules, conflicts);
 
@@ -562,13 +562,15 @@ Hyumu.Scheduler = (function () {
     }
   }
 
-  // Decoupled final rebalance: unlike rebalance() above, the day taken from the highest person
-  // and the day given to the lowest person don't have to be the same date. This closes gaps that
-  // same-date swapping can't reach, since the target off-days count matters more than keeping
-  // any single day's staffing untouched.
-  function rebalanceDecoupled(schedule, employees, dates, effectiveCap, offCount, conflicts) {
+  // Decoupled final rebalance: unlike rebalance() above, the day taken from the over-target
+  // person and the day given to the under-target person don't have to be the same date. This
+  // closes gaps that same-date swapping can't reach. Critically, this drives everyone toward
+  // their OWN target[] count, not just toward each other — mutual closeness (e.g. everyone
+  // within 1 of each other) isn't the goal; hitting the actual target number is (사장님 지시:
+  // 휴무 개수가 최우선이니 목표에 정확히 맞춰야 함).
+  function rebalanceDecoupled(schedule, employees, dates, effectiveCap, offCount, target, conflicts) {
     if (employees.length < 2) return;
-    const maxIterations = employees.length * dates.length * 4;
+    const maxIterations = employees.length * dates.length * 8;
     let iterations = 0;
 
     function statusOn(empId, date) {
@@ -588,14 +590,13 @@ Hyumu.Scheduler = (function () {
 
     while (iterations < maxIterations) {
       iterations++;
-      const sortedDesc = [...employees].sort((a, b) => offCount[b.id] - offCount[a.id]);
-      const sortedAsc = [...employees].sort((a, b) => offCount[a.id] - offCount[b.id]);
-      const lowestOff = offCount[sortedAsc[0].id];
+      // Over-target: currently more OFF days than their own target calls for. Under-target: fewer.
+      const over = employees.filter((e) => offCount[e.id] > target[e.id]).sort((a, b) => (offCount[b.id] - target[b.id]) - (offCount[a.id] - target[a.id]));
+      const under = employees.filter((e) => offCount[e.id] < target[e.id]).sort((a, b) => (target[b.id] - offCount[b.id]) - (target[a.id] - offCount[a.id]));
+      if (over.length === 0 || under.length === 0) break;
 
       let swapped = false;
-      outer: for (const eMax of sortedDesc) {
-        if (offCount[eMax.id] - lowestOff <= 1) break;
-
+      outer: for (const eMax of over) {
         let reduceDate = null;
         for (const date of dates) {
           if (
@@ -609,9 +610,8 @@ Hyumu.Scheduler = (function () {
         }
         if (!reduceDate) continue;
 
-        for (const eMin of sortedAsc) {
+        for (const eMin of under) {
           if (eMin.id === eMax.id) continue;
-          if (offCount[eMax.id] - offCount[eMin.id] <= 1) continue;
 
           let increaseDate = null;
           for (const date of dates) {
@@ -635,15 +635,17 @@ Hyumu.Scheduler = (function () {
 
     let maxOff = -Infinity;
     let minOff = Infinity;
+    let missedTarget = false;
     for (const emp of employees) {
       maxOff = Math.max(maxOff, offCount[emp.id]);
       minOff = Math.min(minOff, offCount[emp.id]);
+      if (offCount[emp.id] !== Math.round(target[emp.id])) missedTarget = true;
     }
-    if (maxOff - minOff > 1) {
+    if (missedTarget) {
       conflicts.push({
         date: null,
         type: 'IMBALANCE_NOTICE',
-        message: `전체 휴무일수를 완전한 균형으로 맞추지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일). 연속 근무 제한 때문에 더 이상 조정할 수 없는 경우입니다.`,
+        message: `전체 휴무일수를 목표에 정확히 맞추지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일). 연속 근무 제한 때문에 더 이상 조정할 수 없는 경우입니다.`,
         employeeIds: []
       });
     }
