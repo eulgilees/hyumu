@@ -23,6 +23,24 @@ Hyumu.Scheduler = (function () {
     return EXEMPT_LEAVE_TYPES.includes(Model.leaveTypeOf(emp, date));
   }
 
+  // Would giving `emp` a new OFF day on `date` push any of their corners below its own
+  // morning+afternoon minimum? Used by the catch-up swap passes so they can't quietly
+  // re-violate a corner minimum that Phase 1 already respected while chasing the target
+  // off-days count.
+  function wouldExceedCornerCap(schedule, employees, cornerAllowedOff, emp, date) {
+    const empCorners = Model.employeeCorners(emp);
+    if (empCorners.length === 0) return false;
+    const cornerOffToday = {};
+    employees.forEach((other) => {
+      if (other.id === emp.id) return;
+      if (schedule[other.id][date].status !== 'OFF') return;
+      Model.employeeCorners(other).forEach((c) => {
+        cornerOffToday[c] = (cornerOffToday[c] || 0) + 1;
+      });
+    });
+    return empCorners.some((c) => cornerAllowedOff[c] != null && (cornerOffToday[c] || 0) >= cornerAllowedOff[c]);
+  }
+
   function generateSchedule(doc) {
     const { employees, rules, month } = doc;
     const dates = Model.allDatesOfMonth(month.year, month.month);
@@ -150,6 +168,15 @@ Hyumu.Scheduler = (function () {
         cornerTotal[c] = (cornerTotal[c] || 0) + 1;
       });
     });
+    // Static for the whole month (doesn't depend on the date) — how many people from each
+    // corner can be off on any given day while still leaving that corner's own morning+
+    // afternoon minimum staffed. Used both in Phase 1 and by the later catch-up swap passes,
+    // so a swap chasing the target off-days count can't quietly re-violate a corner minimum
+    // that Phase 1 already respected.
+    const cornerAllowedOff = {};
+    Object.keys(cornerTotal).forEach((corner) => {
+      cornerAllowedOff[corner] = Math.max(0, cornerTotal[corner] - (cornerMinStaff[corner] || 0));
+    });
 
     // Fairness group headcount: small sub-corners (e.g. 기프트/학용/필기구/디자인문구)
     // are pooled together per Model.cornerFairnessGroup so red-day rest is shared
@@ -255,17 +282,14 @@ Hyumu.Scheduler = (function () {
       const remainingSlots = Math.min(paceSlots, reqRoom);
       const candidates = freeEmployees.filter((emp) => !forcedIds.has(emp.id));
 
-      // Per-corner OFF budget is informational only from here on — corner staffing must not
-      // block someone from reaching their target off-days count.
+      // Per-corner OFF budget: same principle as the store-wide staffing room above — respect
+      // each corner's own morning+afternoon minimum first when picking who rests today, and only
+      // let the month-end catch-up passes (rebalanceDecoupled/trim) breach it as a last resort.
       const cornerOffUsed = {};
       [...lockedEmployees.filter((e) => schedule[e.id][date].status === 'OFF'), ...forcedOff].forEach((emp) => {
         Model.employeeCorners(emp).forEach((c) => {
           cornerOffUsed[c] = (cornerOffUsed[c] || 0) + 1;
         });
-      });
-      const cornerAllowedOff = {};
-      Object.keys(cornerTotal).forEach((corner) => {
-        cornerAllowedOff[corner] = Math.max(0, cornerTotal[corner] - (cornerMinStaff[corner] || 0));
       });
       Object.entries(cornerOffUsed).forEach(([corner, used]) => {
         if (cornerAllowedOff[corner] != null && used > cornerAllowedOff[corner]) {
@@ -296,9 +320,6 @@ Hyumu.Scheduler = (function () {
         return employees.indexOf(a) - employees.indexOf(b);
       });
 
-      // Corner caps are informational (see above) — a corner going over its cap because
-      // people needed rest to hit their target is flagged below, not blocked here.
-      const cornersOverCap = new Set();
       const chosenOff = [];
       for (const emp of candidates) {
         if (chosenOff.length >= remainingSlots) break;
@@ -307,22 +328,14 @@ Hyumu.Scheduler = (function () {
         // are meant to be mostly worked, only rotated rest per corner.
         if (redDay && fairnessRedDayOff[emp.id] >= Math.ceil(redDayTarget[emp.id])) continue;
         const empCorners = Model.employeeCorners(emp);
+        const blocked = empCorners.some((c) => cornerAllowedOff[c] != null && (cornerOffUsed[c] || 0) >= cornerAllowedOff[c]);
+        if (blocked) continue;
         chosenOff.push(emp);
         empCorners.forEach((c) => {
           cornerOffUsed[c] = (cornerOffUsed[c] || 0) + 1;
-          if (cornerAllowedOff[c] != null && cornerOffUsed[c] > cornerAllowedOff[c]) cornersOverCap.add(c);
         });
       }
       const chosenOffIds = new Set(chosenOff.map((e) => e.id));
-
-      cornersOverCap.forEach((corner) => {
-        conflicts.push({
-          date,
-          type: 'CORNER_MIN_STAFF_VIOLATION',
-          message: `${date}: 목표 휴무일수를 맞추기 위해 '${corner}' 코너 최소 인원(${cornerMinStaff[corner] || 0}명) 미만으로 근무합니다.`,
-          employeeIds: []
-        });
-      });
 
       candidates.filter((emp) => chosenOffIds.has(emp.id)).forEach((emp) => setCell(schedule, emp.id, date, 'OFF', 'AUTO_FAIRNESS'));
       candidates.filter((emp) => !chosenOffIds.has(emp.id)).forEach((emp) => setCell(schedule, emp.id, date, 'WORK', 'AUTO'));
@@ -345,7 +358,7 @@ Hyumu.Scheduler = (function () {
       }
     }
 
-    rebalanceRedDays(schedule, employees, redDates, dates, personalCap, fairnessRedDayOff, conflicts);
+    rebalanceRedDays(schedule, employees, redDates, dates, personalCap, cornerAllowedOff, fairnessRedDayOff, conflicts);
     // Recompute weekdayOff straight from the schedule (not by subtracting fairnessRedDayOff
     // from the pre-rebalance fairnessOff) — rebalanceRedDays just swapped OFF/WORK cells on
     // red days, so that subtraction would use a stale fairnessOff and desync from reality.
@@ -359,7 +372,7 @@ Hyumu.Scheduler = (function () {
       }
       weekdayOff[emp.id] = count;
     });
-    rebalance(schedule, employees, weekdayDates, dates, personalCap, weekdayOff, conflicts, true);
+    rebalance(schedule, employees, weekdayDates, dates, personalCap, cornerAllowedOff, weekdayOff, conflicts, true);
 
     // rebalance() above only trades OFF/WORK on the *same date* between two people, which stays
     // staffing-neutral for that day but can leave gaps unfixed simply because the two people who
@@ -377,7 +390,7 @@ Hyumu.Scheduler = (function () {
       }
       monthOff[emp.id] = count;
     });
-    rebalanceDecoupled(schedule, employees, dates, personalCap, monthOff, target, conflicts);
+    rebalanceDecoupled(schedule, employees, dates, personalCap, cornerAllowedOff, monthOff, target, conflicts);
 
     assignShifts(schedule, employees, dates, rules, conflicts);
 
@@ -518,7 +531,7 @@ Hyumu.Scheduler = (function () {
 
   // swapDates: which dates are eligible to swap on. allDates: the full month, used to
   // correctly measure consecutive-workday streaks across day boundaries not in swapDates.
-  function rebalance(schedule, employees, swapDates, allDates, personalCap, offCount, conflicts, silent) {
+  function rebalance(schedule, employees, swapDates, allDates, personalCap, cornerAllowedOff, offCount, conflicts, silent) {
     if (employees.length < 2) return;
     const maxIterations = employees.length * swapDates.length * 4;
     let iterations = 0;
@@ -556,7 +569,8 @@ Hyumu.Scheduler = (function () {
               statusOn(eMax.id, date) === 'OFF' &&
               sourceOn(eMin.id, date) === 'AUTO' &&
               statusOn(eMin.id, date) === 'WORK' &&
-              !wouldExceedCap(eMax.id, date)
+              !wouldExceedCap(eMax.id, date) &&
+              !wouldExceedCornerCap(schedule, employees, cornerAllowedOff, eMin, date)
             ) {
               chosenDate = date;
               break;
@@ -606,7 +620,7 @@ Hyumu.Scheduler = (function () {
   // worked), the cap is relaxed by +1 for that one person only, as a last resort — never
   // globally, and only once every normal-cap swap has been exhausted. This is escalated up to
   // +3 before giving up, since hitting the target always outranks the consecutive-work cap.
-  function rebalanceDecoupled(schedule, employees, dates, personalCap, offCount, target, conflicts) {
+  function rebalanceDecoupled(schedule, employees, dates, personalCap, cornerAllowedOff, offCount, target, conflicts) {
     if (employees.length < 2) return;
     const maxIterations = employees.length * dates.length * 8;
     const maxCapBonus = 3;
@@ -663,7 +677,11 @@ Hyumu.Scheduler = (function () {
 
           let increaseDate = null;
           for (const date of dates) {
-            if (sourceOn(eMin.id, date) === 'AUTO' && statusOn(eMin.id, date) === 'WORK') {
+            if (
+              sourceOn(eMin.id, date) === 'AUTO' &&
+              statusOn(eMin.id, date) === 'WORK' &&
+              !wouldExceedCornerCap(schedule, employees, cornerAllowedOff, eMin, date)
+            ) {
               increaseDate = date;
               break;
             }
@@ -731,7 +749,7 @@ Hyumu.Scheduler = (function () {
   // Balances red-day (weekend/holiday) OFF within each single-corner group so members
   // take turns resting on red days roughly evenly; multi-corner/no-corner employees
   // fall back to a store-wide group.
-  function rebalanceRedDays(schedule, employees, redDates, allDates, personalCap, redDayOff, conflicts) {
+  function rebalanceRedDays(schedule, employees, redDates, allDates, personalCap, cornerAllowedOff, redDayOff, conflicts) {
     if (employees.length < 2 || redDates.length === 0) return;
 
     const groups = {};
@@ -780,7 +798,8 @@ Hyumu.Scheduler = (function () {
                 statusOn(eMax.id, date) === 'OFF' &&
                 sourceOn(eMin.id, date) === 'AUTO' &&
                 statusOn(eMin.id, date) === 'WORK' &&
-                !wouldExceedCap(eMax.id, date)
+                !wouldExceedCap(eMax.id, date) &&
+                !wouldExceedCornerCap(schedule, employees, cornerAllowedOff, eMin, date)
               ) {
                 chosenDate = date;
                 break;
