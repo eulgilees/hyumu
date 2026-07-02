@@ -91,16 +91,25 @@ Hyumu.Scheduler = (function () {
       }
     }
 
-    let totalOffSlots = 0;
-    for (const date of dates) {
-      const req = Model.minStaffRequired(rules, date);
-      totalOffSlots += Math.max(0, n - req);
-    }
-    const baseTarget = totalOffSlots / n;
+    // 목표 휴무일수(rules.targetOffDays)가 있으면 그게 곧 목표다 — 최소 근무 인원에서
+    // 역산한 값이 아니라, 사용자가 직접 정한 숫자. 최소 인원 요건은 이 목표를 채우는 데
+    // 방해가 되면 안 되고(휴무가 최우선), 아래 Phase 1에서도 일일 남은 슬롯 계산을 이
+    // 목표에 맞춰 페이싱하지 최소인원 여유분으로 캡을 걸지 않는다.
+    const baseTarget = rules.targetOffDays != null && rules.targetOffDays !== ''
+      ? Number(rules.targetOffDays)
+      : (() => {
+          let totalOffSlots = 0;
+          for (const date of dates) {
+            const req = Model.minStaffRequired(rules, date);
+            totalOffSlots += Math.max(0, n - req);
+          }
+          return totalOffSlots / n;
+        })();
     const target = {};
     employees.forEach((emp) => {
       target[emp.id] = Math.max(lockedOffCount[emp.id], baseTarget);
     });
+    const totalTargetSum = employees.reduce((sum, emp) => sum + target[emp.id], 0);
 
     const cap = rules.maxConsecutiveWorkDays;
     const effectiveCap = rules.minRestPerWeekWindow ? Math.min(cap, 6) : cap;
@@ -164,7 +173,11 @@ Hyumu.Scheduler = (function () {
     });
 
     // Phase 1: chronological greedy fill
-    for (const date of dates) {
+    // totalOffSoFar tracks the running sum of fairnessOff across all employees, used below to
+    // pace daily rest slots against the target instead of against staffing headroom.
+    let totalOffSoFar = 0;
+    for (let dayIndex = 0; dayIndex < dates.length; dayIndex++) {
+      const date = dates[dayIndex];
       const weekend = Model.isWeekend(date);
       const redDay = weekend || Model.isRedDay(date);
       const req = Math.max(Model.minStaffRequired(rules, date), shiftMinTotal);
@@ -186,6 +199,8 @@ Hyumu.Scheduler = (function () {
         });
       }
 
+      // Kept for conflict messaging only — no longer used to cap how many people can rest
+      // today, since the target off-days count outranks minimum staffing (사장님 지시).
       const allowedAdditionalOff = Math.max(0, n - req - fixedOffCount);
 
       const forcedOff = freeEmployees.filter((emp) => consecutiveWork[emp.id] >= effectiveCap);
@@ -202,10 +217,14 @@ Hyumu.Scheduler = (function () {
 
       forcedOff.forEach((emp) => setCell(schedule, emp.id, date, 'OFF', 'AUTO_FORCED'));
 
-      const remainingSlots = Math.max(0, allowedAdditionalOff - forcedOff.length);
+      // Pace today's rest slots against the target trajectory (how much of totalTargetSum
+      // "should" be used up by this point in the month), not against staffing headroom.
+      const desiredCumulative = Math.round((totalTargetSum * (dayIndex + 1)) / dates.length);
+      const remainingSlots = Math.max(0, desiredCumulative - totalOffSoFar - forcedOff.length);
       const candidates = freeEmployees.filter((emp) => !forcedIds.has(emp.id));
 
-      // Per-corner remaining OFF budget: locked/forced-off corner members already consumed some
+      // Per-corner OFF budget is informational only from here on — corner staffing must not
+      // block someone from reaching their target off-days count.
       const cornerOffUsed = {};
       [...lockedEmployees.filter((e) => schedule[e.id][date].status === 'OFF'), ...forcedOff].forEach((emp) => {
         Model.employeeCorners(emp).forEach((c) => {
@@ -245,6 +264,9 @@ Hyumu.Scheduler = (function () {
         return employees.indexOf(a) - employees.indexOf(b);
       });
 
+      // Corner caps are informational (see above) — a corner going over its cap because
+      // people needed rest to hit their target is flagged below, not blocked here.
+      const cornersOverCap = new Set();
       const chosenOff = [];
       for (const emp of candidates) {
         if (chosenOff.length >= remainingSlots) break;
@@ -253,14 +275,22 @@ Hyumu.Scheduler = (function () {
         // are meant to be mostly worked, only rotated rest per corner.
         if (redDay && fairnessRedDayOff[emp.id] >= Math.ceil(redDayTarget[emp.id])) continue;
         const empCorners = Model.employeeCorners(emp);
-        const blocked = empCorners.some((c) => cornerAllowedOff[c] != null && (cornerOffUsed[c] || 0) >= cornerAllowedOff[c]);
-        if (blocked) continue;
         chosenOff.push(emp);
         empCorners.forEach((c) => {
           cornerOffUsed[c] = (cornerOffUsed[c] || 0) + 1;
+          if (cornerAllowedOff[c] != null && cornerOffUsed[c] > cornerAllowedOff[c]) cornersOverCap.add(c);
         });
       }
       const chosenOffIds = new Set(chosenOff.map((e) => e.id));
+
+      cornersOverCap.forEach((corner) => {
+        conflicts.push({
+          date,
+          type: 'CORNER_MIN_STAFF_VIOLATION',
+          message: `${date}: 목표 휴무일수를 맞추기 위해 '${corner}' 코너 최소 인원(${cornerMinStaff[corner] || 0}명) 미만으로 근무합니다.`,
+          employeeIds: []
+        });
+      });
 
       candidates.filter((emp) => chosenOffIds.has(emp.id)).forEach((emp) => setCell(schedule, emp.id, date, 'OFF', 'AUTO_FAIRNESS'));
       candidates.filter((emp) => !chosenOffIds.has(emp.id)).forEach((emp) => setCell(schedule, emp.id, date, 'WORK', 'AUTO'));
@@ -274,6 +304,7 @@ Hyumu.Scheduler = (function () {
           if (redDay) redDayOff[emp.id]++;
           if (!isExemptLockedOff(emp, date, schedule)) {
             fairnessOff[emp.id]++;
+            totalOffSoFar++;
             if (redDay) fairnessRedDayOff[emp.id]++;
           }
         } else {
