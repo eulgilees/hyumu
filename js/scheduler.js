@@ -380,13 +380,6 @@ Hyumu.Scheduler = (function () {
           cornerOffUsed[c] = (cornerOffUsed[c] || 0) + 1;
         });
       });
-      // A sibling department is already short-staffed on this date, so every 파트장 needs to stay
-      // available for backfillPartLeaders rather than one of them taking rest here — pretend the
-      // 파트장 corner's OFF budget is already used up for today so Phase 1 doesn't pick one to rest,
-      // only to have backfillPartLeaders immediately pull them back to WORK anyway.
-      if (excludeDatesForSlack && excludeDatesForSlack.has(date) && cornerAllowedOff['파트장'] != null) {
-        cornerOffUsed['파트장'] = cornerAllowedOff['파트장'];
-      }
       Object.entries(cornerOffUsed).forEach(([corner, used]) => {
         if (cornerAllowedOff[corner] != null && used > cornerAllowedOff[corner]) {
           conflicts.push({
@@ -397,6 +390,16 @@ Hyumu.Scheduler = (function () {
           });
         }
       });
+      // A sibling department is already short-staffed on this date, so every 파트장 needs to stay
+      // available for backfillPartLeaders rather than one of them taking rest here — block ANY
+      // new 파트장 rest pick today (not just once the cap is reached), since backfillPartLeaders
+      // will pull in whoever it can regardless of how many are already off, and every one Phase 1
+      // adds here is one more that gets immediately reversed there. Applied only to the
+      // candidate-blocking check below, after the real violation check above already ran, so this
+      // synthetic block doesn't itself get misreported as a corner-minimum violation.
+      if (excludeDatesForSlack && excludeDatesForSlack.has(date) && cornerAllowedOff['파트장'] != null) {
+        cornerOffUsed['파트장'] = Infinity;
+      }
 
       candidates.sort((a, b) => {
         if (redDay) {
@@ -486,7 +489,7 @@ Hyumu.Scheduler = (function () {
       }
       monthOff[emp.id] = count;
     });
-    rebalanceDecoupled(schedule, employees, allEmployees, dates, personalCap, cornerAllowedOff, monthOff, target, conflicts);
+    rebalanceDecoupled(schedule, employees, allEmployees, dates, personalCap, cornerAllowedOff, monthOff, target, conflicts, excludeDatesForSlack);
 
     // rebalanceDecoupled only ever moves a day from someone OVER target to someone UNDER — if a
     // corner's shared cap is scarce enough that EVERYONE in it stays under target (e.g. 파트장:
@@ -850,7 +853,7 @@ Hyumu.Scheduler = (function () {
   // worked), the cap is relaxed by +1 for that one person only, as a last resort — never
   // globally, and only once every normal-cap swap has been exhausted. This is escalated up to
   // +3 before giving up, since hitting the target always outranks the consecutive-work cap.
-  function rebalanceDecoupled(schedule, employees, allEmployees, dates, personalCap, cornerAllowedOff, offCount, target, conflicts) {
+  function rebalanceDecoupled(schedule, employees, allEmployees, dates, personalCap, cornerAllowedOff, offCount, target, conflicts, excludeDatesForSlack) {
     if (employees.length < 2) return;
     const maxIterations = employees.length * dates.length * 8;
     const maxCapBonus = 3;
@@ -907,6 +910,7 @@ Hyumu.Scheduler = (function () {
 
           let increaseDate = null;
           for (const date of dates) {
+            if (excludeDatesForSlack && excludeDatesForSlack.has(date)) continue;
             if (
               sourceOn(eMin.id, date) === 'AUTO' &&
               statusOn(eMin.id, date) === 'WORK' &&
