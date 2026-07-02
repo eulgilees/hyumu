@@ -44,7 +44,6 @@ Hyumu.Scheduler = (function () {
   function generateSchedule(doc) {
     const { employees, rules, month } = doc;
     const dates = Model.allDatesOfMonth(month.year, month.month);
-    const n = employees.length;
 
     const schedule = {};
     employees.forEach((emp) => {
@@ -76,11 +75,57 @@ Hyumu.Scheduler = (function () {
 
     const conflicts = [];
 
-    if (n === 0) {
+    if (employees.length === 0) {
       doc.schedule = schedule;
       doc.conflicts = conflicts;
       return doc;
     }
+
+    // 문구/서적은 각자 최소근무인원/연속근무/오전조/오후조 기준이 별도라서(사장님 지시),
+    // 부서별로 완전히 독립적인 인원 풀로 나눠서 각자의 Phase 1 + 재조정을 따로 돌린다.
+    // 관리(점장/파트장/영업지원)는 어느 부서에도 안 속하니 store-wide 기본 규칙(rules 최상위
+    // 필드)을 그대로 쓰는 별도 풀로 처리한다.
+    const deptEmployees = { '문구': [], '서적': [] };
+    const adminEmployees = [];
+    employees.forEach((emp) => {
+      const dept = Model.employeeDepartment(emp);
+      if (dept === '문구' || dept === '서적') deptEmployees[dept].push(emp);
+      else adminEmployees.push(emp);
+    });
+
+    const deptRules = rules.deptRules || {};
+    ['문구', '서적'].forEach((dept) => {
+      if (deptEmployees[dept].length === 0) return;
+      const groupRules = Object.assign({}, rules, deptRules[dept] || {});
+      runGroupSchedule(deptEmployees[dept], groupRules, schedule, dates, conflicts);
+    });
+    if (adminEmployees.length > 0) {
+      // 관리(점장/파트장/영업지원)는 store-wide 최소인원 수치를 그대로 물려받으면 안 된다 —
+      // 그 수치는 문구/서적처럼 여러 명 규모의 부서를 염두에 두고 정한 값이라, 관리 인원(대개
+      // 1~3명)에 그대로 적용하면 매일 인원 부족으로 뜬다. 관리는 인원 하한 없이 목표
+      // 휴무일수 페이스와 연속근무 제한만 따른다(점장은 상관없다는 사장님 지시).
+      const adminRules = Object.assign({}, rules, { minStaffDefault: 0, minMorningStaff: 0, minAfternoonStaff: 0 });
+      runGroupSchedule(adminEmployees, adminRules, schedule, dates, conflicts);
+    }
+
+    // 파트장은 어느 한 부서가 도저히 최소인원을 못 맞출 때 그 부서에 투입돼야 한다(사장님 지시).
+    // 각 부서 자체 인원만으로 최소근무인원을 못 채운 날, 그날 쉬는 파트장이 있으면 근무로 돌려
+    // 그 부서를 메운다.
+    backfillPartLeaders(schedule, employees, deptEmployees, deptRules, rules, dates, conflicts);
+
+    assignShifts(schedule, employees, dates, rules, conflicts);
+
+    doc.schedule = schedule;
+    doc.conflicts = conflicts;
+    return doc;
+  }
+
+  // Runs the full Phase 1 greedy fill + rebalance passes for one self-contained pool of
+  // employees (a department, or the 관리 catch-all), writing into the shared `schedule` and
+  // `conflicts`. Everything here only ever looks at `groupEmployees` — no cross-group effects.
+  function runGroupSchedule(groupEmployees, rules, schedule, dates, conflicts) {
+    const n = groupEmployees.length;
+    const employees = groupEmployees;
 
     const consecutiveWork = {};
     const totalOff = {};
@@ -391,12 +436,45 @@ Hyumu.Scheduler = (function () {
       monthOff[emp.id] = count;
     });
     rebalanceDecoupled(schedule, employees, dates, personalCap, cornerAllowedOff, monthOff, target, conflicts);
+  }
 
-    assignShifts(schedule, employees, dates, rules, conflicts);
+  // 파트장 backfill: for any date where a department's own dedicated staff can't meet its
+  // minimum staffing (a MIN_STAFF_VIOLATION was recorded for that dept's own people), pull in
+  // an available 파트장 (currently resting, not BASE/MANUAL locked) to cover the gap. This runs
+  // after every department/관리 group has already been scheduled independently.
+  function backfillPartLeaders(schedule, employees, deptEmployees, deptRules, rules, dates, conflicts) {
+    const partLeaders = employees.filter((emp) => Model.employeeCorners(emp).includes('파트장'));
+    if (partLeaders.length === 0) return;
 
-    doc.schedule = schedule;
-    doc.conflicts = conflicts;
-    return doc;
+    ['문구', '서적'].forEach((dept) => {
+      const deptEmps = deptEmployees[dept];
+      if (deptEmps.length === 0) return;
+      const groupRules = Object.assign({}, rules, deptRules[dept] || {});
+
+      dates.forEach((date) => {
+        const req = Math.max(Model.minStaffRequired(groupRules, date), (groupRules.minMorningStaff || 0) + (groupRules.minAfternoonStaff || 0));
+        let working = deptEmps.filter((e) => schedule[e.id][date].status === 'WORK').length;
+        if (working >= req) return;
+
+        for (const leader of partLeaders) {
+          if (working >= req) break;
+          const cell = schedule[leader.id][date];
+          if (cell.source === 'BASE' || cell.source === 'MANUAL') continue;
+          if (cell.status !== 'OFF') continue;
+          setCell(schedule, leader.id, date, 'WORK', 'AUTO');
+          working++;
+        }
+
+        if (working < req) {
+          conflicts.push({
+            date,
+            type: 'MIN_STAFF_VIOLATION',
+            message: `${date}: 파트장 투입에도 '${dept}' 최소 근무 인원(${req}명)을 채울 수 없습니다.`,
+            employeeIds: []
+          });
+        }
+      });
+    });
   }
 
   function assignShifts(schedule, employees, dates, rules, conflicts) {

@@ -399,22 +399,33 @@ Hyumu.Render = (function () {
           <input type="number" id="rule-extended-work-cap" min="1" value="${rules.extendedWorkCap != null ? rules.extendedWorkCap : ''}" placeholder="예: 5">
         </div>
         <p class="hint">직원이 확정된 휴무(연차 등)를 위 일수 이상 연달아 쓰면, 그 달 전체에서 그 직원은 아래 "최대 연속 근무일수" 대신 이 값까지 허용해요 (휴무 블록 앞뒤에만 국한되지 않고 그 달 전체에 적용). 긴 휴식을 위해 다른 날 하루 더 일하는 걸 감안하는 규칙이에요. 비워두면 적용 안 함.</p>
-        <div class="field-row">
-          <label>기본 최소 근무 인원</label>
-          <input type="number" id="rule-min-staff" min="0" value="${rules.minStaffDefault}">
-        </div>
-        <div class="field-row">
-          <label>최대 연속 근무일수</label>
-          <input type="number" id="rule-max-consecutive" min="1" value="${rules.maxConsecutiveWorkDays}">
-        </div>
         ${shiftWarn}
-        <div class="field-row">
-          <label>오전조 최소 인원</label>
-          <input type="number" id="rule-min-morning" min="0" value="${rules.minMorningStaff || 0}">
-        </div>
-        <div class="field-row">
-          <label>오후조 최소 인원</label>
-          <input type="number" id="rule-min-afternoon" min="0" value="${rules.minAfternoonStaff || 0}">
+        <p class="hint">최소근무인원/연속근무/오전조/오후조는 문구와 서적이 서로 별도예요. 관리(점장/파트장/영업지원)는 아래 값 대신 매장 공통 기본값을 따로 씁니다(추후 설정).</p>
+        <div class="dept-rules-row">
+          ${['문구', '서적'].map((dept) => {
+            const dr = (rules.deptRules && rules.deptRules[dept]) || {};
+            return `
+            <div class="dept-rules-col">
+              <h3>${dept}</h3>
+              <div class="field-row">
+                <label>기본 최소 근무 인원</label>
+                <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="minStaffDefault" min="0" value="${dr.minStaffDefault != null ? dr.minStaffDefault : rules.minStaffDefault}">
+              </div>
+              <div class="field-row">
+                <label>최대 연속 근무일수</label>
+                <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="maxConsecutiveWorkDays" min="1" value="${dr.maxConsecutiveWorkDays != null ? dr.maxConsecutiveWorkDays : rules.maxConsecutiveWorkDays}">
+              </div>
+              <div class="field-row">
+                <label>오전조 최소 인원</label>
+                <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="minMorningStaff" min="0" value="${dr.minMorningStaff != null ? dr.minMorningStaff : (rules.minMorningStaff || 0)}">
+              </div>
+              <div class="field-row">
+                <label>오후조 최소 인원</label>
+                <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="minAfternoonStaff" min="0" value="${dr.minAfternoonStaff != null ? dr.minAfternoonStaff : (rules.minAfternoonStaff || 0)}">
+              </div>
+            </div>
+          `;
+          }).join('')}
         </div>
         <div class="field-row">
           <label><input type="checkbox" id="rule-week-rest" ${rules.minRestPerWeekWindow ? 'checked' : ''}> 매 7일마다 최소 1일 휴무 보장</label>
@@ -501,17 +512,10 @@ Hyumu.Render = (function () {
     container.querySelector('#rule-extended-work-cap').addEventListener('change', (e) =>
       handlers.onUpdateRule('extendedWorkCap', e.target.value === '' ? null : Number(e.target.value))
     );
-    container.querySelector('#rule-min-staff').addEventListener('change', (e) =>
-      handlers.onUpdateRule('minStaffDefault', Number(e.target.value))
-    );
-    container.querySelector('#rule-max-consecutive').addEventListener('change', (e) =>
-      handlers.onUpdateRule('maxConsecutiveWorkDays', Number(e.target.value))
-    );
-    container.querySelector('#rule-min-morning').addEventListener('change', (e) =>
-      handlers.onUpdateRule('minMorningStaff', Number(e.target.value))
-    );
-    container.querySelector('#rule-min-afternoon').addEventListener('change', (e) =>
-      handlers.onUpdateRule('minAfternoonStaff', Number(e.target.value))
+    container.querySelectorAll('.rule-dept-input').forEach((input) =>
+      input.addEventListener('change', () =>
+        handlers.onUpdateDeptRule(input.dataset.dept, input.dataset.field, Number(input.value))
+      )
     );
     container.querySelector('#rule-week-rest').addEventListener('change', (e) =>
       handlers.onUpdateRule('minRestPerWeekWindow', e.target.checked)

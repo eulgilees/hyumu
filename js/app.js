@@ -229,6 +229,13 @@ Hyumu.App = (function () {
       await save();
       renderContent();
     },
+    async onUpdateDeptRule(dept, field, value) {
+      if (!doc.rules.deptRules) doc.rules.deptRules = {};
+      if (!doc.rules.deptRules[dept]) doc.rules.deptRules[dept] = {};
+      doc.rules.deptRules[dept][field] = value;
+      await save();
+      renderContent();
+    },
     async onUpdateTargetOffDays(targetOffDays) {
       doc.rules.targetOffDays = targetOffDays;
       const n = doc.employees.length;

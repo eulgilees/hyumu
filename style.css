@@ -402,6 +402,42 @@ button {
   gap: 12px;
 }
 
+.dept-rules-row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.dept-rules-col {
+  flex: 1 1 260px;
+  min-width: 240px;
+  background: #f8f9fb;
+  border: 1px solid #e2e4e8;
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.dept-rules-col h3 {
+  margin: 0 0 10px 0;
+  font-size: 15px;
+  color: #2d3e50;
+}
+
+.dept-rules-col .field-row {
+  margin-bottom: 10px;
+}
+
+.dept-rules-col .field-row label {
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+}
+
+.dept-rules-col .field-row input[type="number"] {
+  width: 70px;
+}
+
 .field-row label {
   min-width: 180px;
 }

@@ -148,6 +148,23 @@ Hyumu.Model = (function () {
     return corner;
   }
 
+  // Which department (문구/서적) an employee's staffing counts toward. Returns null for
+  // 관리 (점장/파트장/영업지원) — they don't belong to either department's own headcount.
+  // An employee spanning corners from more than one department returns null too (ambiguous).
+  function employeeDepartment(emp) {
+    const corners = employeeCorners(emp);
+    let found = null;
+    for (const corner of corners) {
+      for (const dept of ['문구', '서적']) {
+        if (CORNER_GROUPS[dept].includes(corner)) {
+          if (found && found !== dept) return null;
+          found = dept;
+        }
+      }
+    }
+    return found;
+  }
+
   function defaultRules() {
     return {
       minStaffDefault: 1,
@@ -201,6 +218,7 @@ Hyumu.Model = (function () {
     isRedDay,
     employeeCorners,
     cornerFairnessGroup,
+    employeeDepartment,
     LEAVE_TYPES,
     leaveTypeOf,
     pad2,
