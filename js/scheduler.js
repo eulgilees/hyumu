@@ -199,8 +199,10 @@ Hyumu.Scheduler = (function () {
         });
       }
 
-      // Kept for conflict messaging only — no longer used to cap how many people can rest
-      // today, since the target off-days count outranks minimum staffing (사장님 지시).
+      // How much rest today's own staffing minimum allows, before touching the monthly target
+      // pacing at all — a day that genuinely needs full staffing shouldn't get emptied out just
+      // because the month-wide rest quota has room, and a slack day (nobody on leave, more
+      // people available than the minimum) should absorb extra rest rather than overstaffing.
       const allowedAdditionalOff = Math.max(0, n - req - fixedOffCount);
 
       const forcedOff = freeEmployees.filter((emp) => consecutiveWork[emp.id] >= effectiveCap);
@@ -218,9 +220,15 @@ Hyumu.Scheduler = (function () {
       forcedOff.forEach((emp) => setCell(schedule, emp.id, date, 'OFF', 'AUTO_FORCED'));
 
       // Pace today's rest slots against the target trajectory (how much of totalTargetSum
-      // "should" be used up by this point in the month), not against staffing headroom.
+      // "should" be used up by this point in the month). Normally capped by the day's own
+      // staffing room (allowedAdditionalOff) so a fully-staffed day doesn't get overstaffed
+      // and a low-staffing day doesn't get emptied for no reason — the target/staffing gap
+      // that this creates gets caught up later by rebalanceDecoupled's escalated passes,
+      // which are the ones allowed to actually dip below minimum staffing when unavoidable.
       const desiredCumulative = Math.round((totalTargetSum * (dayIndex + 1)) / dates.length);
-      const remainingSlots = Math.max(0, desiredCumulative - totalOffSoFar - forcedOff.length);
+      const paceSlots = Math.max(0, desiredCumulative - totalOffSoFar - forcedOff.length);
+      const reqRoom = Math.max(0, allowedAdditionalOff - forcedOff.length);
+      const remainingSlots = Math.min(paceSlots, reqRoom);
       const candidates = freeEmployees.filter((emp) => !forcedIds.has(emp.id));
 
       // Per-corner OFF budget is informational only from here on — corner staffing must not
