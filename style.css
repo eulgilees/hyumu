@@ -133,6 +133,10 @@ body {
   margin: 0 auto;
 }
 
+#app-content:has(.screen-calendar) {
+  max-width: none;
+}
+
 .screen h2 {
   margin-top: 0;
 }
