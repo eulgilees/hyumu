@@ -439,6 +439,9 @@ Hyumu.Render = (function () {
         <div class="field-row">
           <label><input type="checkbox" id="rule-week-rest" ${rules.minRestPerWeekWindow ? 'checked' : ''}> 매 7일마다 최소 1일 휴무 보장</label>
         </div>
+        <div class="field-row">
+          <label><input type="checkbox" id="rule-avoid-alternating" ${rules.avoidAlternatingShift ? 'checked' : ''}> 퐁당퐁당 금지 (전후전후처럼 매일 근무조 바뀌지 않게 같은 조로 몰아주기)</label>
+        </div>
 
         <details class="rule-details">
           <summary>요일별 최소 근무 인원 예외 (선택)</summary>
@@ -525,6 +528,9 @@ Hyumu.Render = (function () {
       input.addEventListener('change', () =>
         handlers.onUpdateDeptRule(input.dataset.dept, input.dataset.field, Number(input.value))
       )
+    );
+    container.querySelector('#rule-avoid-alternating').addEventListener('change', (e) =>
+      handlers.onUpdateRule('avoidAlternatingShift', e.target.checked)
     );
     container.querySelector('#rule-week-rest').addEventListener('change', (e) =>
       handlers.onUpdateRule('minRestPerWeekWindow', e.target.checked)

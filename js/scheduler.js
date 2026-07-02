@@ -516,13 +516,35 @@ Hyumu.Scheduler = (function () {
     return 0;
   }
 
+  // "퐁당퐁당" 방지: 근무일이 이어질 때 전-후-전-후처럼 매일 근무조가 바뀌면 힘들다는 사장님
+  // 지시 — rules.avoidAlternatingShift가 켜져 있으면 어제도 근무했던 사람은 오늘도 어제와 같은
+  // 조를 우선 배정해서, 같은 조로 몰아 근무하는 흐름을 만든다. 어제 쉬었거나(연속 근무 시작일)
+  // 어제 조가 안 정해졌으면 이 규칙은 관여하지 않는다.
+  function shiftContinuityPreference(emp, date, dates, schedule, rules) {
+    if (!rules.avoidAlternatingShift) return 0;
+    const idx = dates.indexOf(date);
+    const prevDate = dates[idx - 1];
+    if (!prevDate) return 0;
+    const prevCell = schedule[emp.id][prevDate];
+    if (!prevCell || prevCell.status !== 'WORK' || !prevCell.shift) return 0;
+    return prevCell.shift === 'MORNING' ? -1 : 1;
+  }
+
+  // Edge-of-rest-day preference (opt-in per employee) wins when it applies; otherwise fall back
+  // to the 퐁당퐁당-avoidance continuity preference (store-wide rule) when that's enabled.
+  function shiftBias(emp, date, dates, schedule, rules) {
+    const edge = edgeShiftPreference(emp, date, dates, schedule);
+    if (edge !== 0) return edge;
+    return shiftContinuityPreference(emp, date, dates, schedule, rules);
+  }
+
   function assignShifts(schedule, employees, dates, rules, conflicts) {
     const minMorning = rules.minMorningStaff || 0;
     const minAfternoon = rules.minAfternoonStaff || 0;
     const cornerShiftMin = rules.minStaffByCorner || {};
     const hasCornerShiftReq = Object.values(cornerShiftMin).some((req) => (req.morning || 0) > 0 || (req.afternoon || 0) > 0);
     const hasEdgePreference = employees.some((e) => e.edgeShiftPreference);
-    if (minMorning === 0 && minAfternoon === 0 && !hasCornerShiftReq && !hasEdgePreference && !employees.some((e) => e.shiftPreference !== 'ANY')) {
+    if (minMorning === 0 && minAfternoon === 0 && !hasCornerShiftReq && !hasEdgePreference && !rules.avoidAlternatingShift && !employees.some((e) => e.shiftPreference !== 'ANY')) {
       return;
     }
 
@@ -561,12 +583,12 @@ Hyumu.Scheduler = (function () {
       // when picking among the flexible pool (not the hard corner-minimum picks above), since
       // it's a "웬만하면" soft preference the employee opted into, not a hard requirement.
       const byMorningPreferenceThenNeed = (a, b) => {
-        const prefDiff = edgeShiftPreference(a, date, dates, schedule) - edgeShiftPreference(b, date, dates, schedule);
+        const prefDiff = shiftBias(a, date, dates, schedule, rules) - shiftBias(b, date, dates, schedule, rules);
         if (prefDiff !== 0) return prefDiff;
         return byMorningNeedAsc(a, b);
       };
       const byAfternoonPreferenceThenNeed = (a, b) => {
-        const prefDiff = edgeShiftPreference(b, date, dates, schedule) - edgeShiftPreference(a, date, dates, schedule);
+        const prefDiff = shiftBias(b, date, dates, schedule, rules) - shiftBias(a, date, dates, schedule, rules);
         if (prefDiff !== 0) return prefDiff;
         return byMorningNeedAsc(b, a);
       };
@@ -643,7 +665,7 @@ Hyumu.Scheduler = (function () {
 
       leftover.sort(byMorningNeedAsc);
       for (const e of leftover) {
-        const pref = edgeShiftPreference(e, date, dates, schedule);
+        const pref = shiftBias(e, date, dates, schedule, rules);
         const diff = morningCount[e.id] - afternoonCount[e.id];
         const assignMorning = pref !== 0 ? pref < 0 : (diff < 0 || (diff === 0 && dayMorningCount <= dayAfternoonCount));
         if (assignMorning) {

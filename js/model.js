@@ -175,6 +175,7 @@ Hyumu.Model = (function () {
       minMorningStaff: 0,
       minAfternoonStaff: 0,
       minStaffByCorner: {},
+      avoidAlternatingShift: false,
       dateLabels: {}
     };
   }
