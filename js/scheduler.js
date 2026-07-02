@@ -568,10 +568,20 @@ Hyumu.Scheduler = (function () {
   // their OWN target[] count, not just toward each other — mutual closeness (e.g. everyone
   // within 1 of each other) isn't the goal; hitting the actual target number is (사장님 지시:
   // 휴무 개수가 최우선이니 목표에 정확히 맞춰야 함).
+  //
+  // If someone still can't be brought down to target under the normal cap (their locked days
+  // happen to sit such that every fairness-off day they have would create an over-cap run if
+  // worked), the cap is relaxed by +1 for that one person only, as a last resort — never
+  // globally, and only once every normal-cap swap has been exhausted. This is escalated up to
+  // +3 before giving up, since hitting the target always outranks the consecutive-work cap.
   function rebalanceDecoupled(schedule, employees, dates, effectiveCap, offCount, target, conflicts) {
     if (employees.length < 2) return;
     const maxIterations = employees.length * dates.length * 8;
+    const maxCapBonus = 3;
     let iterations = 0;
+
+    const capBonus = {};
+    employees.forEach((e) => { capBonus[e.id] = 0; });
 
     function statusOn(empId, date) {
       return schedule[empId][date].status;
@@ -579,13 +589,25 @@ Hyumu.Scheduler = (function () {
     function sourceOn(empId, date) {
       return schedule[empId][date].source;
     }
-    function wouldExceedCapIfWork(empId, date) {
+    function wouldExceedCapIfWork(empId, date, bonus) {
       const idx = dates.indexOf(date);
       let back = 0;
       for (let i = idx - 1; i >= 0 && statusOn(empId, dates[i]) === 'WORK'; i--) back++;
       let fwd = 0;
       for (let i = idx + 1; i < dates.length && statusOn(empId, dates[i]) === 'WORK'; i++) fwd++;
-      return back + fwd + 1 > effectiveCap;
+      return back + fwd + 1 > effectiveCap + bonus;
+    }
+    function findReduceDate(empId, bonus) {
+      for (const date of dates) {
+        if (
+          sourceOn(empId, date) === 'AUTO_FAIRNESS' &&
+          statusOn(empId, date) === 'OFF' &&
+          !wouldExceedCapIfWork(empId, date, bonus)
+        ) {
+          return date;
+        }
+      }
+      return null;
     }
 
     while (iterations < maxIterations) {
@@ -597,16 +619,10 @@ Hyumu.Scheduler = (function () {
 
       let swapped = false;
       outer: for (const eMax of over) {
-        let reduceDate = null;
-        for (const date of dates) {
-          if (
-            sourceOn(eMax.id, date) === 'AUTO_FAIRNESS' &&
-            statusOn(eMax.id, date) === 'OFF' &&
-            !wouldExceedCapIfWork(eMax.id, date)
-          ) {
-            reduceDate = date;
-            break;
-          }
+        let reduceDate = findReduceDate(eMax.id, capBonus[eMax.id]);
+        while (!reduceDate && capBonus[eMax.id] < maxCapBonus) {
+          capBonus[eMax.id]++;
+          reduceDate = findReduceDate(eMax.id, capBonus[eMax.id]);
         }
         if (!reduceDate) continue;
 
@@ -631,6 +647,35 @@ Hyumu.Scheduler = (function () {
         }
       }
       if (!swapped) break;
+    }
+
+    // If someone is still over target here, it's not because a swap partner couldn't be found —
+    // it's because there's a genuine 1-day surplus in the total (Phase 1's daily pacing can round
+    // up by one day over the month), and once everyone else sits exactly at their target there's
+    // no one left "under" to hand the extra day to. A straight swap can only move the surplus
+    // around, never remove it — so just drop it: convert the over-target person's rest day
+    // straight to work, with no counterpart, shrinking the total by one.
+    let trimIterations = 0;
+    while (trimIterations < employees.length * 2) {
+      trimIterations++;
+      const stillOver = employees.filter((e) => offCount[e.id] > target[e.id])
+        .sort((a, b) => (offCount[b.id] - target[b.id]) - (offCount[a.id] - target[a.id]));
+      if (stillOver.length === 0) break;
+
+      let trimmed = false;
+      for (const eMax of stillOver) {
+        let reduceDate = findReduceDate(eMax.id, capBonus[eMax.id]);
+        while (!reduceDate && capBonus[eMax.id] < maxCapBonus) {
+          capBonus[eMax.id]++;
+          reduceDate = findReduceDate(eMax.id, capBonus[eMax.id]);
+        }
+        if (!reduceDate) continue;
+        schedule[eMax.id][reduceDate] = { status: 'WORK', source: 'AUTO' };
+        offCount[eMax.id]--;
+        trimmed = true;
+        break;
+      }
+      if (!trimmed) break;
     }
 
     let maxOff = -Infinity;
