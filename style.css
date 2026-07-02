@@ -545,9 +545,16 @@ button {
   white-space: nowrap;
 }
 
-.red-day-col {
-  background: #fdeaea !important;
+th.red-day-col {
+  background: #fdeaea;
   color: #d0021b;
+}
+
+/* Red day (Sunday/holiday) on body cells: mark only the date via a border,
+   never override the OFF/AM/PM status color — otherwise every cell in a
+   red-day column looks identical and you can't tell 휴/오전/오후 apart. */
+td.cal-cell.red-day-col {
+  box-shadow: inset 0 0 0 2px #d0021b33;
 }
 
 .corner-shift-overrides {
