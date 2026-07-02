@@ -620,7 +620,10 @@ Hyumu.Render = (function () {
           <span class="hint">코너로 조회</span>
           ${Object.entries(Model.CORNER_GROUPS).map(([group, corners]) => `
             <div class="corner-filter-group">
-              <span class="corner-filter-group-label">${esc(group)}</span>
+              <label class="corner-filter-check corner-filter-group-check">
+                <input type="checkbox" class="cal-corner-group-filter" data-group="${esc(group)}" data-corners="${esc(JSON.stringify(corners))}">
+                <span class="corner-filter-group-label">${esc(group)}</span>
+              </label>
               ${corners.map((c) => `
                 <label class="corner-filter-check">
                   <input type="checkbox" class="cal-corner-filter" value="${esc(c)}">
@@ -657,12 +660,28 @@ Hyumu.Render = (function () {
         handlers.onToggleCell(cell.dataset.emp, cell.dataset.date, cell.dataset.status, cell.dataset.shift || null);
       });
     });
-    container.querySelectorAll('.cal-corner-filter').forEach((cb) => cb.addEventListener('change', () => {
+    function applyCornerFilter() {
       const checkedCorners = Array.from(container.querySelectorAll('.cal-corner-filter:checked')).map((c) => c.value);
       container.querySelectorAll('.cal-row').forEach((row) => {
         const rowCorners = JSON.parse(row.dataset.corners || '[]');
         row.style.display = (checkedCorners.length === 0 || checkedCorners.some((c) => rowCorners.includes(c))) ? '' : 'none';
       });
+    }
+    container.querySelectorAll('.cal-corner-group-filter').forEach((groupCb) => groupCb.addEventListener('change', () => {
+      const corners = JSON.parse(groupCb.dataset.corners || '[]');
+      container.querySelectorAll('.cal-corner-filter').forEach((cb) => {
+        if (corners.includes(cb.value)) cb.checked = groupCb.checked;
+      });
+      applyCornerFilter();
+    }));
+    container.querySelectorAll('.cal-corner-filter').forEach((cb) => cb.addEventListener('change', () => {
+      const group = cb.closest('.corner-filter-group');
+      if (group) {
+        const groupCb = group.querySelector('.cal-corner-group-filter');
+        const childBoxes = Array.from(group.querySelectorAll('.cal-corner-filter'));
+        groupCb.checked = childBoxes.length > 0 && childBoxes.every((b) => b.checked);
+      }
+      applyCornerFilter();
     }));
     container.querySelector('#btn-regenerate').addEventListener('click', () => handlers.onRegenerate());
     container.querySelector('#btn-reset-manual').addEventListener('click', () => handlers.onResetManual());
