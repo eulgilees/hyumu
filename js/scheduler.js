@@ -102,10 +102,36 @@ Hyumu.Scheduler = (function () {
       });
     });
 
+    // Red-day (Sat/Sun/holiday) fairness: each employee should get an even share of
+    // red-day OFF within their own corner, since red days are when the store needs
+    // the most coverage and weekdays are when everyone rests anyway.
+    const redDates = dates.filter((date) => Model.isWeekend(date) || Model.isRedDay(date));
+    const lockedRedDayOffCount = {};
+    employees.forEach((emp) => {
+      lockedRedDayOffCount[emp.id] = 0;
+    });
+    for (const emp of employees) {
+      for (const date of redDates) {
+        const cell = schedule[emp.id][date];
+        if (cell && cell.status === 'OFF') lockedRedDayOffCount[emp.id]++;
+      }
+    }
+    const redDayTarget = {};
+    employees.forEach((emp) => {
+      const corners = Model.employeeCorners(emp);
+      let base;
+      if (corners.length === 1 && cornerTotal[corners[0]]) {
+        base = redDates.length / cornerTotal[corners[0]];
+      } else {
+        base = redDates.length / n;
+      }
+      redDayTarget[emp.id] = Math.max(lockedRedDayOffCount[emp.id], base);
+    });
+
     // Phase 1: chronological greedy fill
     for (const date of dates) {
       const weekend = Model.isWeekend(date);
-      const redDay = Model.isRedDay(date);
+      const redDay = weekend || Model.isRedDay(date);
       const req = Math.max(Model.minStaffRequired(rules, date), shiftMinTotal);
 
       const lockedEmployees = [];
@@ -167,13 +193,14 @@ Hyumu.Scheduler = (function () {
       });
 
       candidates.sort((a, b) => {
+        if (redDay) {
+          const redDeficitA = redDayTarget[a.id] - redDayOff[a.id];
+          const redDeficitB = redDayTarget[b.id] - redDayOff[b.id];
+          if (redDeficitB !== redDeficitA) return redDeficitB - redDeficitA;
+        }
         const deficitA = target[a.id] - totalOff[a.id];
         const deficitB = target[b.id] - totalOff[b.id];
         if (deficitB !== deficitA) return deficitB - deficitA;
-        if (redDay) {
-          const rDiff = redDayOff[a.id] - redDayOff[b.id];
-          if (rDiff !== 0) return rDiff;
-        }
         if (weekend) {
           const wDiff = weekendOff[a.id] - weekendOff[b.id];
           if (wDiff !== 0) return wDiff;
@@ -186,6 +213,10 @@ Hyumu.Scheduler = (function () {
       const chosenOff = [];
       for (const emp of candidates) {
         if (chosenOff.length >= remainingSlots) break;
+        // On red days, once someone has already taken their fair share of red-day rest,
+        // leave them working rather than filling every allowed slot with rest -- red days
+        // are meant to be mostly worked, only rotated rest per corner.
+        if (redDay && redDayOff[emp.id] >= Math.ceil(redDayTarget[emp.id])) continue;
         const empCorners = Model.employeeCorners(emp);
         const blocked = empCorners.some((c) => cornerAllowedOff[c] != null && (cornerOffUsed[c] || 0) >= cornerAllowedOff[c]);
         if (blocked) continue;
@@ -212,7 +243,13 @@ Hyumu.Scheduler = (function () {
       }
     }
 
-    rebalance(schedule, employees, dates, effectiveCap, totalOff, conflicts);
+    rebalanceRedDays(schedule, employees, redDates, dates, effectiveCap, redDayOff, conflicts);
+    const weekdayDates = dates.filter((date) => !(Model.isWeekend(date) || Model.isRedDay(date)));
+    const weekdayOff = {};
+    employees.forEach((emp) => {
+      weekdayOff[emp.id] = totalOff[emp.id] - redDayOff[emp.id];
+    });
+    rebalance(schedule, employees, weekdayDates, dates, effectiveCap, weekdayOff, conflicts);
     assignShifts(schedule, employees, dates, rules, conflicts);
 
     doc.schedule = schedule;
@@ -346,9 +383,11 @@ Hyumu.Scheduler = (function () {
     }
   }
 
-  function rebalance(schedule, employees, dates, effectiveCap, totalOff, conflicts) {
+  // swapDates: which dates are eligible to swap on. allDates: the full month, used to
+  // correctly measure consecutive-workday streaks across day boundaries not in swapDates.
+  function rebalance(schedule, employees, swapDates, allDates, effectiveCap, offCount, conflicts) {
     if (employees.length < 2) return;
-    const maxIterations = employees.length * dates.length * 4;
+    const maxIterations = employees.length * swapDates.length * 4;
     let iterations = 0;
 
     function statusOn(empId, date) {
@@ -358,27 +397,27 @@ Hyumu.Scheduler = (function () {
       return schedule[empId][date].source;
     }
     function wouldExceedCap(empId, date) {
-      const idx = dates.indexOf(date);
+      const idx = allDates.indexOf(date);
       let back = 0;
-      for (let i = idx - 1; i >= 0 && statusOn(empId, dates[i]) === 'WORK'; i--) back++;
+      for (let i = idx - 1; i >= 0 && statusOn(empId, allDates[i]) === 'WORK'; i--) back++;
       let fwd = 0;
-      for (let i = idx + 1; i < dates.length && statusOn(empId, dates[i]) === 'WORK'; i++) fwd++;
+      for (let i = idx + 1; i < allDates.length && statusOn(empId, allDates[i]) === 'WORK'; i++) fwd++;
       return back + fwd + 1 > effectiveCap;
     }
 
     while (iterations < maxIterations) {
       iterations++;
-      const sortedDesc = [...employees].sort((a, b) => totalOff[b.id] - totalOff[a.id]);
-      const sortedAsc = [...employees].sort((a, b) => totalOff[a.id] - totalOff[b.id]);
+      const sortedDesc = [...employees].sort((a, b) => offCount[b.id] - offCount[a.id]);
+      const sortedAsc = [...employees].sort((a, b) => offCount[a.id] - offCount[b.id]);
 
       let swapped = false;
       outer: for (const eMax of sortedDesc) {
         for (const eMin of sortedAsc) {
           if (eMax.id === eMin.id) continue;
-          if (totalOff[eMax.id] - totalOff[eMin.id] <= 1) break outer;
+          if (offCount[eMax.id] - offCount[eMin.id] <= 1) break outer;
 
           let chosenDate = null;
-          for (const date of dates) {
+          for (const date of swapDates) {
             if (
               sourceOn(eMax.id, date) === 'AUTO_FAIRNESS' &&
               statusOn(eMax.id, date) === 'OFF' &&
@@ -394,8 +433,8 @@ Hyumu.Scheduler = (function () {
           if (chosenDate) {
             schedule[eMax.id][chosenDate] = { status: 'WORK', source: 'AUTO' };
             schedule[eMin.id][chosenDate] = { status: 'OFF', source: 'AUTO_FAIRNESS' };
-            totalOff[eMax.id]--;
-            totalOff[eMin.id]++;
+            offCount[eMax.id]--;
+            offCount[eMin.id]++;
             swapped = true;
             break outer;
           }
@@ -407,17 +446,106 @@ Hyumu.Scheduler = (function () {
     let maxOff = -Infinity;
     let minOff = Infinity;
     for (const emp of employees) {
-      maxOff = Math.max(maxOff, totalOff[emp.id]);
-      minOff = Math.min(minOff, totalOff[emp.id]);
+      maxOff = Math.max(maxOff, offCount[emp.id]);
+      minOff = Math.min(minOff, offCount[emp.id]);
     }
     if (maxOff - minOff > 1) {
       conflicts.push({
         date: null,
         type: 'IMBALANCE_NOTICE',
-        message: `완전한 균형을 맞추지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일 휴무).`,
+        message: `평일 휴무를 완전한 균형으로 맞추지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일).`,
         employeeIds: []
       });
     }
+  }
+
+  // Balances red-day (weekend/holiday) OFF within each single-corner group so members
+  // take turns resting on red days roughly evenly; multi-corner/no-corner employees
+  // fall back to a store-wide group.
+  function rebalanceRedDays(schedule, employees, redDates, allDates, effectiveCap, redDayOff, conflicts) {
+    if (employees.length < 2 || redDates.length === 0) return;
+
+    const groups = {};
+    employees.forEach((emp) => {
+      const corners = Model.employeeCorners(emp);
+      const key = corners.length === 1 ? corners[0] : '__store__';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(emp);
+    });
+
+    function statusOn(empId, date) {
+      return schedule[empId][date].status;
+    }
+    function sourceOn(empId, date) {
+      return schedule[empId][date].source;
+    }
+    function wouldExceedCap(empId, date) {
+      const idx = allDates.indexOf(date);
+      let back = 0;
+      for (let i = idx - 1; i >= 0 && statusOn(empId, allDates[i]) === 'WORK'; i--) back++;
+      let fwd = 0;
+      for (let i = idx + 1; i < allDates.length && statusOn(empId, allDates[i]) === 'WORK'; i++) fwd++;
+      return back + fwd + 1 > effectiveCap;
+    }
+
+    Object.entries(groups).forEach(([groupKey, groupEmployees]) => {
+      if (groupEmployees.length < 2) return;
+      const maxIterations = groupEmployees.length * redDates.length * 4;
+      let iterations = 0;
+
+      while (iterations < maxIterations) {
+        iterations++;
+        const sortedDesc = [...groupEmployees].sort((a, b) => redDayOff[b.id] - redDayOff[a.id]);
+        const sortedAsc = [...groupEmployees].sort((a, b) => redDayOff[a.id] - redDayOff[b.id]);
+
+        let swapped = false;
+        outer: for (const eMax of sortedDesc) {
+          for (const eMin of sortedAsc) {
+            if (eMax.id === eMin.id) continue;
+            if (redDayOff[eMax.id] - redDayOff[eMin.id] <= 1) break outer;
+
+            let chosenDate = null;
+            for (const date of redDates) {
+              if (
+                sourceOn(eMax.id, date) === 'AUTO_FAIRNESS' &&
+                statusOn(eMax.id, date) === 'OFF' &&
+                sourceOn(eMin.id, date) === 'AUTO' &&
+                statusOn(eMin.id, date) === 'WORK' &&
+                !wouldExceedCap(eMax.id, date)
+              ) {
+                chosenDate = date;
+                break;
+              }
+            }
+
+            if (chosenDate) {
+              schedule[eMax.id][chosenDate] = { status: 'WORK', source: 'AUTO' };
+              schedule[eMin.id][chosenDate] = { status: 'OFF', source: 'AUTO_FAIRNESS' };
+              redDayOff[eMax.id]--;
+              redDayOff[eMin.id]++;
+              swapped = true;
+              break outer;
+            }
+          }
+        }
+        if (!swapped) break;
+      }
+
+      let maxOff = -Infinity;
+      let minOff = Infinity;
+      for (const emp of groupEmployees) {
+        maxOff = Math.max(maxOff, redDayOff[emp.id]);
+        minOff = Math.min(minOff, redDayOff[emp.id]);
+      }
+      if (maxOff - minOff > 1 && groupKey !== '__store__') {
+        conflicts.push({
+          date: null,
+          type: 'IMBALANCE_NOTICE',
+          message: `'${groupKey}' 코너는 빨간날(주말/공휴일) 휴무를 완전히 고르게 나누지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일).`,
+          employeeIds: []
+        });
+      }
+    });
   }
 
   return { generateSchedule };
