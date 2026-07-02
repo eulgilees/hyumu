@@ -113,13 +113,14 @@ Hyumu.Scheduler = (function () {
         cornerTotalGlobal[c] = (cornerTotalGlobal[c] || 0) + 1;
       });
     });
-    // 파트장은 몇 명이 있든 같은 날 동시에 둘 이상 쉬면 안 된다(사장님 지시: "동시에 같이 쉬는
-    // 날이 절대 없어야해") — 하루에 휴무 가능한 파트장은 최대 1명이라는 하드 제약을 코너 최소
-    // 인원 설정 여부와 무관하게 강제로 걸어둔다. 사용자가 규칙 화면에서 '파트장' 코너에 이보다
-    // 더 엄격한(=더 높은) 오전/오후 최소치를 직접 설정했다면 그 값이 우선한다.
+    // 파트장은 몇 명이 동시에 쉬든 상관없지만, 매장에 파트장이 단 한 명도 없는 날은 절대
+    // 없어야 한다(사장님 지시: "최대 1명은 근무해야 한다는거야" — 동시에 여럿이 쉬는 건 괜찮고,
+    // 항상 최소 1명은 근무해야 한다는 뜻). 코너 최소 인원 설정 여부와 무관하게 이 하한을
+    // 강제로 걸어둔다. 사용자가 규칙 화면에서 '파트장' 코너에 이보다 더 엄격한(=더 높은)
+    // 오전/오후 최소치를 직접 설정했다면 그 값이 우선한다.
     const partLeaderCount = cornerTotalGlobal['파트장'] || 0;
-    if (partLeaderCount > 1) {
-      cornerMinStaffGlobal['파트장'] = Math.max(cornerMinStaffGlobal['파트장'] || 0, partLeaderCount - 1);
+    if (partLeaderCount > 0) {
+      cornerMinStaffGlobal['파트장'] = Math.max(cornerMinStaffGlobal['파트장'] || 0, 1);
     }
     const cornerAllowedOff = {};
     Object.keys(cornerTotalGlobal).forEach((corner) => {
@@ -560,7 +561,7 @@ Hyumu.Scheduler = (function () {
         conflicts.push({
           date: null,
           type: 'IMBALANCE_NOTICE',
-          message: `파트장은 동시에 둘 이상 쉴 수 없다는 제약과 부서 최소 인원 보충 때문에, 휴무일수를 파트장끼리 완전히 고르게 나누지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일).`,
+          message: `파트장은 항상 최소 1명은 근무해야 한다는 제약과 부서 최소 인원 보충 때문에, 휴무일수를 파트장끼리 완전히 고르게 나누지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일).`,
           employeeIds: []
         });
       }
