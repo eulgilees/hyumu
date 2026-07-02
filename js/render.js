@@ -25,12 +25,14 @@ Hyumu.Render = (function () {
     }
   }
 
-  function openCustomCalendar(anchorEl, initialDateStr, onSelect) {
+  function openCustomCalendar(anchorEl, initialDateStr, onSelect, onSelectRange) {
     closeCalendarPopup();
     const today = new Date();
     let [y, m] = initialDateStr
       ? initialDateStr.split('-').map(Number)
       : [today.getFullYear(), today.getMonth() + 1];
+    let rangeMode = false;
+    let rangeStart = null;
 
     const popup = document.createElement('div');
     popup.className = 'custom-calendar-popup';
@@ -46,8 +48,12 @@ Hyumu.Render = (function () {
       for (let d = 1; d <= numDays; d++) {
         const dateStr = Model.dateISO(y, m, d);
         const isToday = dateStr === Model.dateISO(today.getFullYear(), today.getMonth() + 1, today.getDate());
-        cells.push(`<button type="button" class="cc-day${isToday ? ' cc-today' : ''}" data-date="${dateStr}">${d}</button>`);
+        const isRangeStart = rangeMode && rangeStart === dateStr;
+        cells.push(`<button type="button" class="cc-day${isToday ? ' cc-today' : ''}${isRangeStart ? ' cc-range-start' : ''}" data-date="${dateStr}">${d}</button>`);
       }
+      const rangeHint = !onSelectRange ? '' : rangeMode
+        ? `<p class="cc-range-hint">${rangeStart ? `시작일 ${rangeStart} · 종료일을 선택하세요` : '시작일을 선택하세요'}</p>`
+        : '';
       popup.innerHTML = `
         <div class="cc-header">
           <button type="button" class="cc-nav" id="cc-prev">‹</button>
@@ -58,6 +64,8 @@ Hyumu.Render = (function () {
           ${Model.WEEKDAY_LABELS.map((l) => `<span class="cc-wd">${l}</span>`).join('')}
         </div>
         <div class="cc-grid">${cells.join('')}</div>
+        ${onSelectRange ? `<label class="cc-range-toggle"><input type="checkbox" id="cc-range-mode" ${rangeMode ? 'checked' : ''}> 기간으로 선택 (여러 날짜 한번에)</label>` : ''}
+        ${rangeHint}
         <div class="cc-footer">
           <button type="button" class="cc-link" id="cc-today-btn">오늘</button>
           <button type="button" class="cc-link" id="cc-close-btn">닫기</button>
@@ -76,10 +84,30 @@ Hyumu.Render = (function () {
         renderMonth();
       });
       popup.querySelector('#cc-close-btn').addEventListener('click', () => closeCalendarPopup());
+      const rangeToggle = popup.querySelector('#cc-range-mode');
+      if (rangeToggle) {
+        rangeToggle.addEventListener('change', () => {
+          rangeMode = rangeToggle.checked;
+          rangeStart = null;
+          renderMonth();
+        });
+      }
       popup.querySelectorAll('.cc-day[data-date]').forEach((btn) => {
         btn.addEventListener('click', () => {
-          onSelect(btn.dataset.date);
-          closeCalendarPopup();
+          if (rangeMode) {
+            if (!rangeStart) {
+              rangeStart = btn.dataset.date;
+              renderMonth();
+            } else {
+              const a = rangeStart;
+              const b = btn.dataset.date;
+              onSelectRange(a < b ? a : b, a < b ? b : a);
+              closeCalendarPopup();
+            }
+          } else {
+            onSelect(btn.dataset.date);
+            closeCalendarPopup();
+          }
         });
       });
     }
@@ -332,6 +360,8 @@ Hyumu.Render = (function () {
         const typeSelect = card.querySelector('.emp-leave-type');
         openCustomCalendar(btn, null, (dateStr) => {
           handlers.onAddSpecificOff(btn.dataset.id, dateStr, typeSelect ? typeSelect.value : 'PERSONAL');
+        }, (startDate, endDate) => {
+          handlers.onAddSpecificOffRange(btn.dataset.id, startDate, endDate, typeSelect ? typeSelect.value : 'PERSONAL');
         });
       })
     );

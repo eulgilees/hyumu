@@ -180,6 +180,26 @@ Hyumu.App = (function () {
       await save();
       renderContent();
     },
+    async onAddSpecificOffRange(id, startDate, endDate, leaveType) {
+      const emp = doc.employees.find((e) => e.id === id);
+      if (!emp) return;
+      if (!emp.specificOffTypes) emp.specificOffTypes = {};
+      const [sy, sm, sd] = startDate.split('-').map(Number);
+      const [ey, em, ed] = endDate.split('-').map(Number);
+      const cur = new Date(sy, sm - 1, sd);
+      const end = new Date(ey, em - 1, ed);
+      while (cur <= end) {
+        const dateStr = Model.dateISO(cur.getFullYear(), cur.getMonth() + 1, cur.getDate());
+        if (!emp.specificOff.includes(dateStr)) {
+          emp.specificOff.push(dateStr);
+        }
+        emp.specificOffTypes[dateStr] = leaveType || 'PERSONAL';
+        cur.setDate(cur.getDate() + 1);
+      }
+      emp.specificOff.sort();
+      await save();
+      renderContent();
+    },
     async onRemoveSpecificOff(id, date) {
       const emp = doc.employees.find((e) => e.id === id);
       if (!emp) return;

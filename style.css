@@ -328,6 +328,29 @@ button {
   cursor: default;
 }
 
+.cc-day.cc-range-start {
+  border: 2px solid #e0834a;
+  background: #fdece0;
+  font-weight: 700;
+}
+
+.cc-range-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #555;
+  margin-top: 10px;
+  cursor: pointer;
+}
+
+.cc-range-hint {
+  font-size: 13px;
+  color: #e0834a;
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
 .cc-footer {
   display: flex;
   justify-content: space-between;
