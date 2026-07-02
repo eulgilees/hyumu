@@ -12,6 +12,17 @@ Hyumu.Scheduler = (function () {
     return !!cell && (cell.source === 'BASE' || cell.source === 'MANUAL');
   }
 
+  // Personal annual leave (연차) and 인정 leave are separate from the fairness/rest-day
+  // rotation: an employee who already used annual leave should still receive their full
+  // share of auto-assigned rest on top of it, not have the annual leave count against it.
+  const EXEMPT_LEAVE_TYPES = ['ANNUAL', 'RECOGNIZED'];
+  function isExemptLockedOff(emp, date, schedule) {
+    const cell = schedule[emp.id][date];
+    if (!cell || cell.status !== 'OFF' || cell.source !== 'BASE') return false;
+    if (!emp.specificOff.includes(date)) return false;
+    return EXEMPT_LEAVE_TYPES.includes(Model.leaveTypeOf(emp, date));
+  }
+
   function generateSchedule(doc) {
     const { employees, rules, month } = doc;
     const dates = Model.allDatesOfMonth(month.year, month.month);
@@ -57,13 +68,18 @@ Hyumu.Scheduler = (function () {
     const totalOff = {};
     const weekendOff = {};
     const redDayOff = {};
+    const fairnessOff = {};
     employees.forEach((emp) => {
       consecutiveWork[emp.id] = 0;
       totalOff[emp.id] = 0;
       weekendOff[emp.id] = 0;
       redDayOff[emp.id] = 0;
+      fairnessOff[emp.id] = 0;
     });
 
+    // lockedOffCount excludes exempt (연차/인정) leave so those days don't eat into the
+    // guaranteed auto-rest target; fairnessOff (built up below in the Phase 1 loop) mirrors
+    // this by excluding exempt days from the running deficit calculation too.
     const lockedOffCount = {};
     employees.forEach((emp) => {
       lockedOffCount[emp.id] = 0;
@@ -71,7 +87,7 @@ Hyumu.Scheduler = (function () {
     for (const emp of employees) {
       for (const date of dates) {
         const cell = schedule[emp.id][date];
-        if (cell && cell.status === 'OFF') lockedOffCount[emp.id]++;
+        if (cell && cell.status === 'OFF' && !isExemptLockedOff(emp, date, schedule)) lockedOffCount[emp.id]++;
       }
     }
 
@@ -125,9 +141,11 @@ Hyumu.Scheduler = (function () {
     for (const emp of employees) {
       for (const date of redDates) {
         const cell = schedule[emp.id][date];
-        if (cell && cell.status === 'OFF') lockedRedDayOffCount[emp.id]++;
+        if (cell && cell.status === 'OFF' && !isExemptLockedOff(emp, date, schedule)) lockedRedDayOffCount[emp.id]++;
       }
     }
+    const fairnessRedDayOff = {};
+    employees.forEach((emp) => { fairnessRedDayOff[emp.id] = 0; });
     const redDayTarget = {};
     employees.forEach((emp) => {
       const corners = Model.employeeCorners(emp);
@@ -211,12 +229,12 @@ Hyumu.Scheduler = (function () {
 
       candidates.sort((a, b) => {
         if (redDay) {
-          const redDeficitA = redDayTarget[a.id] - redDayOff[a.id];
-          const redDeficitB = redDayTarget[b.id] - redDayOff[b.id];
+          const redDeficitA = redDayTarget[a.id] - fairnessRedDayOff[a.id];
+          const redDeficitB = redDayTarget[b.id] - fairnessRedDayOff[b.id];
           if (redDeficitB !== redDeficitA) return redDeficitB - redDeficitA;
         }
-        const deficitA = target[a.id] - totalOff[a.id];
-        const deficitB = target[b.id] - totalOff[b.id];
+        const deficitA = target[a.id] - fairnessOff[a.id];
+        const deficitB = target[b.id] - fairnessOff[b.id];
         if (deficitB !== deficitA) return deficitB - deficitA;
         if (weekend) {
           const wDiff = weekendOff[a.id] - weekendOff[b.id];
@@ -233,7 +251,7 @@ Hyumu.Scheduler = (function () {
         // On red days, once someone has already taken their fair share of red-day rest,
         // leave them working rather than filling every allowed slot with rest -- red days
         // are meant to be mostly worked, only rotated rest per corner.
-        if (redDay && redDayOff[emp.id] >= Math.ceil(redDayTarget[emp.id])) continue;
+        if (redDay && fairnessRedDayOff[emp.id] >= Math.ceil(redDayTarget[emp.id])) continue;
         const empCorners = Model.employeeCorners(emp);
         const blocked = empCorners.some((c) => cornerAllowedOff[c] != null && (cornerOffUsed[c] || 0) >= cornerAllowedOff[c]);
         if (blocked) continue;
@@ -254,17 +272,21 @@ Hyumu.Scheduler = (function () {
           totalOff[emp.id]++;
           if (weekend) weekendOff[emp.id]++;
           if (redDay) redDayOff[emp.id]++;
+          if (!isExemptLockedOff(emp, date, schedule)) {
+            fairnessOff[emp.id]++;
+            if (redDay) fairnessRedDayOff[emp.id]++;
+          }
         } else {
           consecutiveWork[emp.id]++;
         }
       }
     }
 
-    rebalanceRedDays(schedule, employees, redDates, dates, effectiveCap, redDayOff, conflicts);
+    rebalanceRedDays(schedule, employees, redDates, dates, effectiveCap, fairnessRedDayOff, conflicts);
     const weekdayDates = dates.filter((date) => !(Model.isWeekend(date) || Model.isRedDay(date)));
     const weekdayOff = {};
     employees.forEach((emp) => {
-      weekdayOff[emp.id] = totalOff[emp.id] - redDayOff[emp.id];
+      weekdayOff[emp.id] = fairnessOff[emp.id] - fairnessRedDayOff[emp.id];
     });
     rebalance(schedule, employees, weekdayDates, dates, effectiveCap, weekdayOff, conflicts);
     assignShifts(schedule, employees, dates, rules, conflicts);
