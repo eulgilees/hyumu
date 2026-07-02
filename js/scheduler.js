@@ -109,6 +109,14 @@ Hyumu.Scheduler = (function () {
         cornerTotalGlobal[c] = (cornerTotalGlobal[c] || 0) + 1;
       });
     });
+    // 파트장은 몇 명이 있든 같은 날 동시에 둘 이상 쉬면 안 된다(사장님 지시: "동시에 같이 쉬는
+    // 날이 절대 없어야해") — 하루에 휴무 가능한 파트장은 최대 1명이라는 하드 제약을 코너 최소
+    // 인원 설정 여부와 무관하게 강제로 걸어둔다. 사용자가 규칙 화면에서 '파트장' 코너에 이보다
+    // 더 엄격한(=더 높은) 오전/오후 최소치를 직접 설정했다면 그 값이 우선한다.
+    const partLeaderCount = cornerTotalGlobal['파트장'] || 0;
+    if (partLeaderCount > 1) {
+      cornerMinStaffGlobal['파트장'] = Math.max(cornerMinStaffGlobal['파트장'] || 0, partLeaderCount - 1);
+    }
     const cornerAllowedOff = {};
     Object.keys(cornerTotalGlobal).forEach((corner) => {
       cornerAllowedOff[corner] = Math.max(0, cornerTotalGlobal[corner] - (cornerMinStaffGlobal[corner] || 0));
