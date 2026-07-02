@@ -93,11 +93,32 @@ Hyumu.Scheduler = (function () {
       else adminEmployees.push(emp);
     });
 
+    // 코너별(기프트/학용/문보장 등) 오전+오후 최소 인원은 부서 분리와 무관하게 매장 전체
+    // 기준으로 지켜져야 한다 — 예를 들어 기프트 담당자 중 한 명이 파트장을 겸해 관리 그룹으로
+    // 빠지더라도, 문구 그룹과 관리 그룹이 서로 몰라서 같은 날 기프트를 동시에 비우면 안 된다.
+    // 그래서 코너 인원수/허용 휴무치는 부서별이 아니라 전체 employees 기준으로 한 번만 계산해
+    // 모든 그룹의 Phase 1/재조정 패스에 공통으로 넘긴다.
+    const cornerShiftMinGlobal = rules.minStaffByCorner || {};
+    const cornerMinStaffGlobal = {};
+    Object.entries(cornerShiftMinGlobal).forEach(([corner, req]) => {
+      cornerMinStaffGlobal[corner] = (req.morning || 0) + (req.afternoon || 0);
+    });
+    const cornerTotalGlobal = {};
+    employees.forEach((emp) => {
+      Model.employeeCorners(emp).forEach((c) => {
+        cornerTotalGlobal[c] = (cornerTotalGlobal[c] || 0) + 1;
+      });
+    });
+    const cornerAllowedOff = {};
+    Object.keys(cornerTotalGlobal).forEach((corner) => {
+      cornerAllowedOff[corner] = Math.max(0, cornerTotalGlobal[corner] - (cornerMinStaffGlobal[corner] || 0));
+    });
+
     const deptRules = rules.deptRules || {};
     ['문구', '서적'].forEach((dept) => {
       if (deptEmployees[dept].length === 0) return;
       const groupRules = Object.assign({}, rules, deptRules[dept] || {});
-      runGroupSchedule(deptEmployees[dept], groupRules, schedule, dates, conflicts);
+      runGroupSchedule(deptEmployees[dept], groupRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal);
     });
     if (adminEmployees.length > 0) {
       // 관리(점장/파트장/영업지원)는 store-wide 최소인원 수치를 그대로 물려받으면 안 된다 —
@@ -105,7 +126,7 @@ Hyumu.Scheduler = (function () {
       // 1~3명)에 그대로 적용하면 매일 인원 부족으로 뜬다. 관리는 인원 하한 없이 목표
       // 휴무일수 페이스와 연속근무 제한만 따른다(점장은 상관없다는 사장님 지시).
       const adminRules = Object.assign({}, rules, { minStaffDefault: 0, minMorningStaff: 0, minAfternoonStaff: 0 });
-      runGroupSchedule(adminEmployees, adminRules, schedule, dates, conflicts);
+      runGroupSchedule(adminEmployees, adminRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal);
     }
 
     // 파트장은 어느 한 부서가 도저히 최소인원을 못 맞출 때 그 부서에 투입돼야 한다(사장님 지시).
@@ -123,7 +144,7 @@ Hyumu.Scheduler = (function () {
   // Runs the full Phase 1 greedy fill + rebalance passes for one self-contained pool of
   // employees (a department, or the 관리 catch-all), writing into the shared `schedule` and
   // `conflicts`. Everything here only ever looks at `groupEmployees` — no cross-group effects.
-  function runGroupSchedule(groupEmployees, rules, schedule, dates, conflicts) {
+  function runGroupSchedule(groupEmployees, rules, schedule, dates, conflicts, allEmployees, cornerAllowedOff, cornerMinStaffGlobal) {
     const n = groupEmployees.length;
     const employees = groupEmployees;
 
@@ -202,26 +223,12 @@ Hyumu.Scheduler = (function () {
 
     const shiftMinTotal = (rules.minMorningStaff || 0) + (rules.minAfternoonStaff || 0);
 
-    const cornerShiftMin = rules.minStaffByCorner || {};
-    const cornerMinStaff = {};
-    Object.entries(cornerShiftMin).forEach(([corner, req]) => {
-      cornerMinStaff[corner] = (req.morning || 0) + (req.afternoon || 0);
-    });
-    const cornerTotal = {};
-    employees.forEach((emp) => {
-      Model.employeeCorners(emp).forEach((c) => {
-        cornerTotal[c] = (cornerTotal[c] || 0) + 1;
-      });
-    });
-    // Static for the whole month (doesn't depend on the date) — how many people from each
-    // corner can be off on any given day while still leaving that corner's own morning+
-    // afternoon minimum staffed. Used both in Phase 1 and by the later catch-up swap passes,
-    // so a swap chasing the target off-days count can't quietly re-violate a corner minimum
-    // that Phase 1 already respected.
-    const cornerAllowedOff = {};
-    Object.keys(cornerTotal).forEach((corner) => {
-      cornerAllowedOff[corner] = Math.max(0, cornerTotal[corner] - (cornerMinStaff[corner] || 0));
-    });
+    // cornerAllowedOff/cornerMinStaffGlobal are computed once in generateSchedule from ALL
+    // employees store-wide (not just this group) — a corner like 기프트 can have members split
+    // across departments (e.g. a 파트장 who also covers 기프트, routed into the 관리 group), so
+    // the cap has to be shared across every group's Phase 1 fill and catch-up passes, or two
+    // groups can each grant OFF to "their" share of the same corner without seeing each other.
+    const cornerMinStaff = cornerMinStaffGlobal;
 
     // Fairness group headcount: small sub-corners (e.g. 기프트/학용/필기구/디자인문구)
     // are pooled together per Model.cornerFairnessGroup so red-day rest is shared
@@ -330,8 +337,12 @@ Hyumu.Scheduler = (function () {
       // Per-corner OFF budget: same principle as the store-wide staffing room above — respect
       // each corner's own morning+afternoon minimum first when picking who rests today, and only
       // let the month-end catch-up passes (rebalanceDecoupled/trim) breach it as a last resort.
+      // Scan ALL employees (not just this group) so a corner already emptied out by another
+      // group's earlier pass (or by that other group's own locked/forced OFF today) is seen here.
       const cornerOffUsed = {};
-      [...lockedEmployees.filter((e) => schedule[e.id][date].status === 'OFF'), ...forcedOff].forEach((emp) => {
+      allEmployees.forEach((emp) => {
+        const cell = schedule[emp.id][date];
+        if (!cell || cell.status !== 'OFF') return;
         Model.employeeCorners(emp).forEach((c) => {
           cornerOffUsed[c] = (cornerOffUsed[c] || 0) + 1;
         });
@@ -403,7 +414,7 @@ Hyumu.Scheduler = (function () {
       }
     }
 
-    rebalanceRedDays(schedule, employees, redDates, dates, personalCap, cornerAllowedOff, fairnessRedDayOff, conflicts);
+    rebalanceRedDays(schedule, employees, allEmployees, redDates, dates, personalCap, cornerAllowedOff, fairnessRedDayOff, conflicts);
     // Recompute weekdayOff straight from the schedule (not by subtracting fairnessRedDayOff
     // from the pre-rebalance fairnessOff) — rebalanceRedDays just swapped OFF/WORK cells on
     // red days, so that subtraction would use a stale fairnessOff and desync from reality.
@@ -417,7 +428,7 @@ Hyumu.Scheduler = (function () {
       }
       weekdayOff[emp.id] = count;
     });
-    rebalance(schedule, employees, weekdayDates, dates, personalCap, cornerAllowedOff, weekdayOff, conflicts, true);
+    rebalance(schedule, employees, allEmployees, weekdayDates, dates, personalCap, cornerAllowedOff, weekdayOff, conflicts, true);
 
     // rebalance() above only trades OFF/WORK on the *same date* between two people, which stays
     // staffing-neutral for that day but can leave gaps unfixed simply because the two people who
@@ -435,7 +446,7 @@ Hyumu.Scheduler = (function () {
       }
       monthOff[emp.id] = count;
     });
-    rebalanceDecoupled(schedule, employees, dates, personalCap, cornerAllowedOff, monthOff, target, conflicts);
+    rebalanceDecoupled(schedule, employees, allEmployees, dates, personalCap, cornerAllowedOff, monthOff, target, conflicts);
   }
 
   // 파트장 backfill: for any date where a department's own dedicated staff can't meet its
@@ -648,7 +659,7 @@ Hyumu.Scheduler = (function () {
 
   // swapDates: which dates are eligible to swap on. allDates: the full month, used to
   // correctly measure consecutive-workday streaks across day boundaries not in swapDates.
-  function rebalance(schedule, employees, swapDates, allDates, personalCap, cornerAllowedOff, offCount, conflicts, silent) {
+  function rebalance(schedule, employees, allEmployees, swapDates, allDates, personalCap, cornerAllowedOff, offCount, conflicts, silent) {
     if (employees.length < 2) return;
     const maxIterations = employees.length * swapDates.length * 4;
     let iterations = 0;
@@ -687,7 +698,7 @@ Hyumu.Scheduler = (function () {
               sourceOn(eMin.id, date) === 'AUTO' &&
               statusOn(eMin.id, date) === 'WORK' &&
               !wouldExceedCap(eMax.id, date) &&
-              !wouldExceedCornerCap(schedule, employees, cornerAllowedOff, eMin, date)
+              !wouldExceedCornerCap(schedule, allEmployees, cornerAllowedOff, eMin, date)
             ) {
               chosenDate = date;
               break;
@@ -737,7 +748,7 @@ Hyumu.Scheduler = (function () {
   // worked), the cap is relaxed by +1 for that one person only, as a last resort — never
   // globally, and only once every normal-cap swap has been exhausted. This is escalated up to
   // +3 before giving up, since hitting the target always outranks the consecutive-work cap.
-  function rebalanceDecoupled(schedule, employees, dates, personalCap, cornerAllowedOff, offCount, target, conflicts) {
+  function rebalanceDecoupled(schedule, employees, allEmployees, dates, personalCap, cornerAllowedOff, offCount, target, conflicts) {
     if (employees.length < 2) return;
     const maxIterations = employees.length * dates.length * 8;
     const maxCapBonus = 3;
@@ -797,7 +808,7 @@ Hyumu.Scheduler = (function () {
             if (
               sourceOn(eMin.id, date) === 'AUTO' &&
               statusOn(eMin.id, date) === 'WORK' &&
-              !wouldExceedCornerCap(schedule, employees, cornerAllowedOff, eMin, date)
+              !wouldExceedCornerCap(schedule, allEmployees, cornerAllowedOff, eMin, date)
             ) {
               increaseDate = date;
               break;
@@ -866,7 +877,7 @@ Hyumu.Scheduler = (function () {
   // Balances red-day (weekend/holiday) OFF within each single-corner group so members
   // take turns resting on red days roughly evenly; multi-corner/no-corner employees
   // fall back to a store-wide group.
-  function rebalanceRedDays(schedule, employees, redDates, allDates, personalCap, cornerAllowedOff, redDayOff, conflicts) {
+  function rebalanceRedDays(schedule, employees, allEmployees, redDates, allDates, personalCap, cornerAllowedOff, redDayOff, conflicts) {
     if (employees.length < 2 || redDates.length === 0) return;
 
     const groups = {};
@@ -916,7 +927,7 @@ Hyumu.Scheduler = (function () {
                 sourceOn(eMin.id, date) === 'AUTO' &&
                 statusOn(eMin.id, date) === 'WORK' &&
                 !wouldExceedCap(eMax.id, date) &&
-                !wouldExceedCornerCap(schedule, employees, cornerAllowedOff, eMin, date)
+                !wouldExceedCornerCap(schedule, allEmployees, cornerAllowedOff, eMin, date)
               ) {
                 chosenDate = date;
                 break;
