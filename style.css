@@ -664,21 +664,13 @@ button {
   filter: none;
 }
 
-.cell-base { background: #dfe6ee; color: #2d3e50; }
-.cell-manual { background: #d6ecff; color: #1565c0; }
-.cell-forced { background: #ffe3d1; color: #b35900; }
-.cell-fairness { background: #e4f7e9; color: #2c7a3d; }
-.cell-auto { background: #fff; color: #555; }
+.cell-off { background: #f9d2d2; color: #a32020; }
+.cell-shift-morning { background: #d9f2df; color: #256b38; }
+.cell-shift-afternoon { background: #d6e8fb; color: #1c5fa8; }
 
-.shift-morning { box-shadow: inset 3px 0 0 #e6a817; }
-.shift-afternoon { box-shadow: inset 3px 0 0 #4a7fd6; }
-
-.swatch.cell-base { background: #dfe6ee; }
-.swatch.cell-manual { background: #d6ecff; }
-.swatch.cell-forced { background: #ffe3d1; }
-.swatch.cell-fairness { background: #e4f7e9; }
-.swatch.shift-morning-swatch { background: #e6a817; }
-.swatch.shift-afternoon-swatch { background: #4a7fd6; }
+.swatch.cell-off { background: #f9d2d2; }
+.swatch.cell-shift-morning { background: #d9f2df; }
+.swatch.cell-shift-afternoon { background: #d6e8fb; }
 
 .calendar-actions {
   margin-top: 14px;

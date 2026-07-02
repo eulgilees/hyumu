@@ -526,14 +526,6 @@ Hyumu.Render = (function () {
     container.querySelector('#btn-generate').addEventListener('click', () => handlers.onGenerate());
   }
 
-  const SOURCE_CLASS = {
-    BASE: 'cell-base',
-    MANUAL: 'cell-manual',
-    AUTO_FORCED: 'cell-forced',
-    AUTO_FAIRNESS: 'cell-fairness',
-    AUTO: 'cell-auto'
-  };
-
   function renderCalendarScreen(container, doc, handlers) {
     const dates = Model.allDatesOfMonth(doc.month.year, doc.month.month);
     const employees = doc.employees;
@@ -589,21 +581,21 @@ Hyumu.Render = (function () {
         const weekendClass = wd === 0 || wd === 6 ? ' weekend-col' : '';
         const redClass = Model.isRedDay(d) ? ' red-day-col' : '';
         const confClass = conflictEmpDay.has(`${emp.id}|${d}`) ? ' conflict-cell' : '';
-        const sourceClass = SOURCE_CLASS[cell.source] || 'cell-auto';
         const isPersonalLock = cell.status === 'OFF' && cell.source === 'BASE' && emp.specificOff.includes(d);
         const lockClass = isPersonalLock ? ' cell-locked' : '';
         let text = '';
-        let shiftClass = '';
+        let statusClass = '';
         if (cell.status === 'OFF') {
           offCount++;
           text = '휴';
+          statusClass = ' cell-off';
         } else {
           text = cell.shift === 'MORNING' ? '전' : cell.shift === 'AFTERNOON' ? '후' : '';
-          shiftClass = cell.shift === 'MORNING' ? ' shift-morning' : cell.shift === 'AFTERNOON' ? ' shift-afternoon' : '';
+          statusClass = cell.shift === 'MORNING' ? ' cell-shift-morning' : cell.shift === 'AFTERNOON' ? ' cell-shift-afternoon' : '';
           if (cell.shift === 'MORNING') morningCount++;
           else if (cell.shift === 'AFTERNOON') afternoonCount++;
         }
-        return `<td class="cal-cell ${sourceClass}${shiftClass}${weekendClass}${redClass}${confClass}${lockClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}" data-locked="${isPersonalLock ? '1' : '0'}">${text}</td>`;
+        return `<td class="cal-cell${statusClass}${weekendClass}${redClass}${confClass}${lockClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}" data-locked="${isPersonalLock ? '1' : '0'}">${text}</td>`;
       }).join('');
       return `<tr class="cal-row" data-corners="${esc(JSON.stringify(Model.employeeCorners(emp)))}"><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${offCount}</td><td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td></tr>`;
     }).join('');
@@ -627,14 +619,11 @@ Hyumu.Render = (function () {
           `).join('')}
         </div>
         <div class="legend">
-          <span class="legend-item"><span class="swatch cell-base"></span>고정휴무</span>
-          <span class="legend-item"><span class="swatch cell-manual"></span>수동수정</span>
-          <span class="legend-item"><span class="swatch cell-forced"></span>연속근무제한</span>
-          <span class="legend-item"><span class="swatch cell-fairness"></span>자동배정</span>
-          <span class="legend-item"><span class="swatch shift-morning-swatch"></span>오전</span>
-          <span class="legend-item"><span class="swatch shift-afternoon-swatch"></span>오후</span>
+          <span class="legend-item"><span class="swatch cell-off"></span>휴무</span>
+          <span class="legend-item"><span class="swatch cell-shift-morning"></span>오전</span>
+          <span class="legend-item"><span class="swatch cell-shift-afternoon"></span>오후</span>
           <span class="legend-item"><span class="swatch red-day-col"></span>빨간날(일요일/공휴일)</span>
-          <span class="legend-item">셀을 클릭하면 휴무 → 오전 → 오후 순으로 직접 바꿀 수 있습니다.</span>
+          <span class="legend-item">셀을 클릭하면 휴무 → 오전 → 오후 순으로 직접 바꿀 수 있습니다. 고정휴무 칸은 잠금 표시(커서)로 구분됩니다.</span>
         </div>
         <div class="calendar-scroll">
           <table class="calendar-table">
