@@ -127,11 +127,19 @@ Hyumu.Scheduler = (function () {
       cornerAllowedOff[corner] = Math.max(0, cornerTotalGlobal[corner] - (cornerMinStaffGlobal[corner] || 0));
     });
 
+    // Collected across every group so backfillPartLeaders can tell whether pulling a specific
+    // 파트장 back to WORK would drop them below their own guaranteed rest-day count, and so a
+    // final safety pass can verify nobody's consecutive-work cap got broken along the way.
+    const targetByEmpId = {};
+    const personalCapByEmpId = {};
+
     const deptRules = rules.deptRules || {};
     ['문구', '서적'].forEach((dept) => {
       if (deptEmployees[dept].length === 0) return;
       const groupRules = Object.assign({}, rules, deptRules[dept] || {});
-      runGroupSchedule(deptEmployees[dept], groupRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal);
+      const result = runGroupSchedule(deptEmployees[dept], groupRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal);
+      Object.assign(targetByEmpId, result.target);
+      Object.assign(personalCapByEmpId, result.personalCap);
     });
 
     // Dates where 문구/서적's own dedicated staff already falls short of their department
@@ -159,13 +167,25 @@ Hyumu.Scheduler = (function () {
       // 1~3명)에 그대로 적용하면 매일 인원 부족으로 뜬다. 관리는 인원 하한 없이 목표
       // 휴무일수 페이스와 연속근무 제한만 따른다(점장은 상관없다는 사장님 지시).
       const adminRules = Object.assign({}, rules, { minStaffDefault: 0, minMorningStaff: 0, minAfternoonStaff: 0 });
-      runGroupSchedule(adminEmployees, adminRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal, deptShortfallDates);
+      const adminResult = runGroupSchedule(adminEmployees, adminRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal, deptShortfallDates);
+      Object.assign(targetByEmpId, adminResult.target);
+      Object.assign(personalCapByEmpId, adminResult.personalCap);
     }
 
-    // 파트장은 어느 한 부서가 도저히 최소인원을 못 맞출 때 그 부서에 투입돼야 한다(사장님 지시).
-    // 각 부서 자체 인원만으로 최소근무인원을 못 채운 날, 그날 쉬는 파트장이 있으면 근무로 돌려
-    // 그 부서를 메운다.
-    backfillPartLeaders(schedule, employees, deptEmployees, deptRules, rules, dates, conflicts);
+    // 파트장은 어느 한 부서가 도저히 최소인원을 못 맞출 때 그 부서에 투입돼야 한다(사장님 지시) —
+    // 단, 그 파트장 본인의 목표 휴무일수(법정 휴무: 빨간날/공휴일 + 이미 쓴 연차·체단·인정)를
+    // 깎으면서까지는 안 된다. 휴무 갯수는 넘버원 원칙이라, 이미 목표만큼만 쉬고 있는 사람은
+    // 투입 대상에서 제외한다(사장님 지시: "가깝게? 그거 안돼... 법적으로 지켜야할 사항이야").
+    backfillPartLeaders(schedule, employees, deptEmployees, deptRules, rules, dates, conflicts, targetByEmpId);
+
+    // Final safety net: multiple passes above (rebalance, trim, backfill) each individually check
+    // the consecutive-work cap before converting a rest day back to WORK, but a bug in any one of
+    // them can still slip a violation through — and this is a hard, non-negotiable limit (사장님
+    // 지시: "연속근무제한이 왜 문제라는거니 ... 무조건 휴무가 먼저", confirmed on real data: a
+    // 6-day streak had slipped through here before this pass existed). So re-verify every
+    // employee's actual final schedule directly and force a rest day back in wherever a streak
+    // still exceeds their cap, no matter which pass caused it.
+    enforceConsecutiveCap(schedule, employees, dates, personalCapByEmpId, conflicts);
 
     assignShifts(schedule, employees, dates, rules, conflicts);
 
@@ -499,13 +519,72 @@ Hyumu.Scheduler = (function () {
     // going to whoever's fallen furthest behind their corner-mates. This pass spends exactly that
     // leftover slack, evening the group out as far as the shared cap allows.
     fillCornerSlack(schedule, employees, allEmployees, dates, cornerAllowedOff, monthOff, excludeDatesForSlack);
+
+    // 목표 휴무일수는 근사치가 아니라 반드시 정확히 맞아야 하는 법정 최소치다(사장님 지시:
+    // "가깝게? 그거 안돼... 법적으로 지켜야할 사항이야") — fillCornerSlack까지 끝난 뒤 최종
+    // 상태로 다시 확인해서, 그래도 안 맞는 사람이 있으면(연속근무 제한 등으로 정말 불가피한
+    // 경우만 여기 남는다) 조용히 넘어가지 않고 반드시 알린다.
+    let maxOff = -Infinity;
+    let minOff = Infinity;
+    let missedTarget = false;
+    employees.forEach((emp) => {
+      maxOff = Math.max(maxOff, monthOff[emp.id]);
+      minOff = Math.min(minOff, monthOff[emp.id]);
+      if (monthOff[emp.id] !== Math.round(target[emp.id])) missedTarget = true;
+    });
+    if (missedTarget) {
+      conflicts.push({
+        date: null,
+        type: 'IMBALANCE_NOTICE',
+        message: `전체 휴무일수를 목표에 정확히 맞추지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일). 연속 근무 제한 때문에 더 이상 조정할 수 없는 경우입니다.`,
+        employeeIds: []
+      });
+    }
+
+    return { target, personalCap };
   }
 
   // 파트장 backfill: for any date where a department's own dedicated staff can't meet its
   // minimum staffing (a MIN_STAFF_VIOLATION was recorded for that dept's own people), pull in
   // an available 파트장 (currently resting, not BASE/MANUAL locked) to cover the gap. This runs
   // after every department/관리 group has already been scheduled independently.
-  function backfillPartLeaders(schedule, employees, deptEmployees, deptRules, rules, dates, conflicts) {
+  // Scans each employee's FINAL schedule (after every rebalance/backfill pass has run) and forces
+  // a rest day back in wherever their actual consecutive-WORK streak still exceeds their own
+  // personalCap — a last-resort safety net, not the primary enforcement mechanism (Phase 1's
+  // forcedOff and every rebalance pass's cap checks are), for whichever pass might still slip a
+  // violation through despite each individually checking. The offending day (the one that first
+  // pushes the streak past the cap) is converted to AUTO_FORCED OFF, unless it's BASE/MANUAL
+  // locked — a locked day can't be un-locked, so that genuinely unavoidable case is only flagged.
+  function enforceConsecutiveCap(schedule, employees, dates, personalCapByEmpId, conflicts) {
+    employees.forEach((emp) => {
+      const cap = personalCapByEmpId[emp.id];
+      if (cap == null) return;
+      let streak = 0;
+      for (const date of dates) {
+        const cell = schedule[emp.id][date];
+        if (cell && cell.status === 'WORK') {
+          streak++;
+          if (streak > cap) {
+            if (cell.source === 'BASE' || cell.source === 'MANUAL') {
+              conflicts.push({
+                date,
+                type: 'MIN_STAFF_VIOLATION',
+                message: `${date}: ${emp.name}님이 연속 근무 제한(${cap}일)을 넘겼지만 고정/수동 근무라 조정할 수 없습니다.`,
+                employeeIds: [emp.id]
+              });
+              continue;
+            }
+            setCell(schedule, emp.id, date, 'OFF', 'AUTO_FORCED');
+            streak = 0;
+          }
+        } else {
+          streak = 0;
+        }
+      }
+    });
+  }
+
+  function backfillPartLeaders(schedule, employees, deptEmployees, deptRules, rules, dates, conflicts, targetByEmpId) {
     const partLeaders = employees.filter((emp) => Model.employeeCorners(emp).includes('파트장'));
     if (partLeaders.length === 0) return;
 
@@ -532,10 +611,18 @@ Hyumu.Scheduler = (function () {
         // pulling it back to WORK would push that person past their cap, which is exactly the
         // real-world limit this exists to prevent (사장님 지시: "연속근무제한이 왜 문제라는거니 ...
         // 무조건 휴무가 먼저"). Only BASE/MANUAL were excluded before; AUTO_FORCED must be too.
+        // And even among the rest: only pull someone who's currently sitting ABOVE their own
+        // target off-days count — target is a legal minimum (법정 휴무: 빨간날/공휴일 + 이미 쓴
+        // 연차·체단·인정), not a suggestion, so staffing a department can never be allowed to
+        // shave it down. If nobody has spare days above target, this date's shortfall goes
+        // unfilled and gets reported below instead.
         const availableLeaders = partLeaders
           .filter((leader) => {
             const cell = schedule[leader.id][date];
-            return cell.status === 'OFF' && cell.source !== 'BASE' && cell.source !== 'MANUAL' && cell.source !== 'AUTO_FORCED';
+            if (cell.status !== 'OFF' || cell.source === 'BASE' || cell.source === 'MANUAL' || cell.source === 'AUTO_FORCED') return false;
+            const target = targetByEmpId ? targetByEmpId[leader.id] : undefined;
+            if (target != null && offRemaining[leader.id] <= target) return false;
+            return true;
           })
           .sort((a, b) => offRemaining[b.id] - offRemaining[a.id]);
 
@@ -966,22 +1053,10 @@ Hyumu.Scheduler = (function () {
       if (!trimmed) break;
     }
 
-    let maxOff = -Infinity;
-    let minOff = Infinity;
-    let missedTarget = false;
-    for (const emp of employees) {
-      maxOff = Math.max(maxOff, offCount[emp.id]);
-      minOff = Math.min(minOff, offCount[emp.id]);
-      if (offCount[emp.id] !== Math.round(target[emp.id])) missedTarget = true;
-    }
-    if (missedTarget) {
-      conflicts.push({
-        date: null,
-        type: 'IMBALANCE_NOTICE',
-        message: `전체 휴무일수를 목표에 정확히 맞추지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일). 연속 근무 제한 때문에 더 이상 조정할 수 없는 경우입니다.`,
-        employeeIds: []
-      });
-    }
+    // No conflict is logged here yet — fillCornerSlack (runGroupSchedule, right after this call)
+    // can still close remaining gaps using leftover corner-cap slack, so checking "did we hit
+    // target" this early would report a stale, overly pessimistic mismatch that fillCornerSlack
+    // then quietly fixes. The real check happens once after that pass too.
   }
 
   // Spends leftover corner-cap slack (a day nobody in a capped corner is resting, even though
