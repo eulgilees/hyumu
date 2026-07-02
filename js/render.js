@@ -386,6 +386,11 @@ Hyumu.Render = (function () {
         <h2>규칙 설정</h2>
         ${warn}
         <div class="field-row">
+          <label>목표 휴무일수 (직원 1인당, 이번 달 기준)</label>
+          <input type="number" id="rule-target-off-days" min="0" step="0.5" value="${rules.targetOffDays != null ? rules.targetOffDays : ''}" placeholder="예: 9">
+        </div>
+        <p class="hint">위 값을 입력하면 아래 "기본 최소 근무 인원"이 자동으로 계산되어 반영됩니다. 아래 값을 직접 수정하면 이 자동 계산은 무시됩니다.</p>
+        <div class="field-row">
           <label>기본 최소 근무 인원</label>
           <input type="number" id="rule-min-staff" min="0" value="${rules.minStaffDefault}">
         </div>
@@ -474,6 +479,13 @@ Hyumu.Render = (function () {
       </section>
     `;
 
+    container.querySelector('#rule-target-off-days').addEventListener('change', (e) => {
+      if (e.target.value === '') {
+        handlers.onUpdateRule('targetOffDays', null);
+        return;
+      }
+      handlers.onUpdateTargetOffDays(Number(e.target.value));
+    });
     container.querySelector('#rule-min-staff').addEventListener('change', (e) =>
       handlers.onUpdateRule('minStaffDefault', Number(e.target.value))
     );

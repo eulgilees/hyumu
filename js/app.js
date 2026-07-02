@@ -229,6 +229,17 @@ Hyumu.App = (function () {
       await save();
       renderContent();
     },
+    async onUpdateTargetOffDays(targetOffDays) {
+      doc.rules.targetOffDays = targetOffDays;
+      const n = doc.employees.length;
+      const days = Model.daysInMonth(state.year, state.month);
+      if (n > 0 && days > 0) {
+        const req = Math.round(n - (targetOffDays * n) / days);
+        doc.rules.minStaffDefault = Math.max(0, Math.min(n, req));
+      }
+      await save();
+      renderContent();
+    },
     async onUpdateWeekdayOverride(weekday, value) {
       if (value === null) {
         delete doc.rules.minStaffByWeekday[weekday];
