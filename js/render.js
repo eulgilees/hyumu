@@ -506,6 +506,21 @@ Hyumu.Render = (function () {
         <div class="field-row">
           <label><input type="checkbox" id="rule-avoid-alternating" ${rules.avoidAlternatingShift ? 'checked' : ''}> 퐁당퐁당 금지 (전후전후처럼 매일 근무조 바뀌지 않게 같은 조로 몰아주기)</label>
         </div>
+        <p class="hint">최대 근무 인원도 문구와 서적이 서로 별도예요. 비워두면 제한 없음.</p>
+        <div class="dept-rules-row">
+          ${['문구', '서적'].map((dept) => {
+            const dr = (rules.deptRules && rules.deptRules[dept]) || {};
+            return `
+            <div class="dept-rules-col">
+              <h3>${dept}</h3>
+              <div class="field-row">
+                <label>최대 근무 인원</label>
+                <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="maxStaffDefault" min="0" value="${dr.maxStaffDefault != null ? dr.maxStaffDefault : ''}" placeholder="제한 없음">
+              </div>
+            </div>
+          `;
+          }).join('')}
+        </div>
 
         <details class="rule-details">
           <summary>요일별 최소 근무 인원 예외 (선택)</summary>
@@ -590,7 +605,7 @@ Hyumu.Render = (function () {
     );
     container.querySelectorAll('.rule-dept-input').forEach((input) =>
       input.addEventListener('change', () =>
-        handlers.onUpdateDeptRule(input.dataset.dept, input.dataset.field, Number(input.value))
+        handlers.onUpdateDeptRule(input.dataset.dept, input.dataset.field, input.value === '' ? null : Number(input.value))
       )
     );
     container.querySelector('#rule-avoid-alternating').addEventListener('change', (e) =>

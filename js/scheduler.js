@@ -384,7 +384,21 @@ Hyumu.Scheduler = (function () {
       const desiredCumulative = Math.round((totalTargetSum * (dayIndex + 1)) / dates.length);
       const paceSlots = Math.max(0, desiredCumulative - totalOffSoFar - forcedOff.length);
       const reqRoom = Math.max(0, allowedAdditionalOff - forcedOff.length);
-      const remainingSlots = Math.min(paceSlots, reqRoom);
+      // 최대 근무 인원(선택): 설정돼 있으면 오늘 근무 인원이 그 값을 넘지 않도록 최소 이만큼은
+      // 무조건 쉬게 한다 — 목표 페이스/최소인원 여유와 무관하게 이 하한은 항상 지켜야 한다.
+      const maxStaffAllowed = rules.maxStaffDefault;
+      const requiredOffForMaxStaff = maxStaffAllowed != null
+        ? Math.max(0, n - maxStaffAllowed - fixedOffCount - forcedOff.length)
+        : 0;
+      if (maxStaffAllowed != null && maxStaffAllowed < req) {
+        conflicts.push({
+          date,
+          type: 'MIN_STAFF_VIOLATION',
+          message: `${date}: 최대 근무 인원(${maxStaffAllowed}명)이 최소 근무 인원(${req}명)보다 적어 규칙이 서로 맞지 않습니다.`,
+          employeeIds: []
+        });
+      }
+      const remainingSlots = Math.max(Math.min(paceSlots, reqRoom), requiredOffForMaxStaff);
       const candidates = freeEmployees.filter((emp) => !forcedIds.has(emp.id));
 
       // Per-corner OFF budget: same principle as the store-wide staffing room above — respect
@@ -456,6 +470,15 @@ Hyumu.Scheduler = (function () {
       }
       const chosenOffIds = new Set(chosenOff.map((e) => e.id));
 
+      if (maxStaffAllowed != null && chosenOff.length < requiredOffForMaxStaff) {
+        conflicts.push({
+          date,
+          type: 'MIN_STAFF_VIOLATION',
+          message: `${date}: 최대 근무 인원(${maxStaffAllowed}명)을 지키려면 더 쉬어야 하지만, 코너 최소 인원 등 다른 제약 때문에 다 쉴 수 없습니다.`,
+          employeeIds: []
+        });
+      }
+
       candidates.filter((emp) => chosenOffIds.has(emp.id)).forEach((emp) => setCell(schedule, emp.id, date, 'OFF', 'AUTO_FAIRNESS'));
       candidates.filter((emp) => !chosenOffIds.has(emp.id)).forEach((emp) => setCell(schedule, emp.id, date, 'WORK', 'AUTO'));
 
@@ -509,7 +532,7 @@ Hyumu.Scheduler = (function () {
       }
       monthOff[emp.id] = count;
     });
-    rebalanceDecoupled(schedule, employees, allEmployees, dates, personalCap, cornerAllowedOff, monthOff, target, conflicts, excludeDatesForSlack);
+    rebalanceDecoupled(schedule, employees, allEmployees, dates, personalCap, cornerAllowedOff, monthOff, target, conflicts, excludeDatesForSlack, rules.maxStaffDefault);
 
     // rebalanceDecoupled only ever moves a day from someone OVER target to someone UNDER — if a
     // corner's shared cap is scarce enough that EVERYONE in it stays under target (e.g. 파트장:
@@ -944,7 +967,7 @@ Hyumu.Scheduler = (function () {
   // worked), the cap is relaxed by +1 for that one person only, as a last resort — never
   // globally, and only once every normal-cap swap has been exhausted. This is escalated up to
   // +3 before giving up, since hitting the target always outranks the consecutive-work cap.
-  function rebalanceDecoupled(schedule, employees, allEmployees, dates, personalCap, cornerAllowedOff, offCount, target, conflicts, excludeDatesForSlack) {
+  function rebalanceDecoupled(schedule, employees, allEmployees, dates, personalCap, cornerAllowedOff, offCount, target, conflicts, excludeDatesForSlack, maxStaffAllowed) {
     if (employees.length < 2) return;
     const maxIterations = employees.length * dates.length * 8;
     const maxCapBonus = 3;
@@ -967,12 +990,21 @@ Hyumu.Scheduler = (function () {
       for (let i = idx + 1; i < dates.length && statusOn(empId, dates[i]) === 'WORK'; i++) fwd++;
       return back + fwd + 1 > personalCap[empId] + bonus;
     }
+    // 최대 근무 인원(설정돼 있으면)을 이 그룹 자체 인원 기준으로 다시 넘기면 안 된다 — 이 값을
+    // 지키려고 Phase 1이 일부러 페이스보다 더 많이 쉬게 한 날이 있을 수 있는데, trim/rebalance가
+    // 그걸 모르고 다시 근무로 돌리면 최대 인원이 조용히 깨진다.
+    function wouldExceedMaxStaffIfWork(date) {
+      if (maxStaffAllowed == null) return false;
+      const working = employees.filter((e) => statusOn(e.id, date) === 'WORK').length;
+      return working + 1 > maxStaffAllowed;
+    }
     function findReduceDate(empId, bonus) {
       for (const date of dates) {
         if (
           sourceOn(empId, date) === 'AUTO_FAIRNESS' &&
           statusOn(empId, date) === 'OFF' &&
-          !wouldExceedCapIfWork(empId, date, bonus)
+          !wouldExceedCapIfWork(empId, date, bonus) &&
+          !wouldExceedMaxStaffIfWork(date)
         ) {
           return date;
         }
