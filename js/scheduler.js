@@ -113,6 +113,30 @@ Hyumu.Scheduler = (function () {
 
     const cap = rules.maxConsecutiveWorkDays;
     const effectiveCap = rules.minRestPerWeekWindow ? Math.min(cap, 6) : cap;
+
+    // A user-configured rule: if an employee's locked (연차 등 확정된) rest block runs at
+    // least rules.longBreakDays days in a row, the consecutive-work cap around it is relaxed
+    // to rules.extendedWorkCap for that person, for the whole month — a long break justifies
+    // working a bit more before/after it. Falls back to the plain cap when unset.
+    const personalCap = {};
+    employees.forEach((emp) => {
+      let personal = effectiveCap;
+      if (rules.longBreakDays != null && rules.extendedWorkCap != null) {
+        let longestLockedRun = 0;
+        let run = 0;
+        for (const date of dates) {
+          if (Model.isBaseOff(emp, date)) {
+            run++;
+            longestLockedRun = Math.max(longestLockedRun, run);
+          } else {
+            run = 0;
+          }
+        }
+        if (longestLockedRun >= rules.longBreakDays) personal = Math.max(effectiveCap, rules.extendedWorkCap);
+      }
+      personalCap[emp.id] = personal;
+    });
+
     const shiftMinTotal = (rules.minMorningStaff || 0) + (rules.minAfternoonStaff || 0);
 
     const cornerShiftMin = rules.minStaffByCorner || {};
@@ -205,7 +229,7 @@ Hyumu.Scheduler = (function () {
       // people available than the minimum) should absorb extra rest rather than overstaffing.
       const allowedAdditionalOff = Math.max(0, n - req - fixedOffCount);
 
-      const forcedOff = freeEmployees.filter((emp) => consecutiveWork[emp.id] >= effectiveCap);
+      const forcedOff = freeEmployees.filter((emp) => consecutiveWork[emp.id] >= personalCap[emp.id]);
       const forcedIds = new Set(forcedOff.map((e) => e.id));
 
       if (forcedOff.length > allowedAdditionalOff) {
@@ -321,7 +345,7 @@ Hyumu.Scheduler = (function () {
       }
     }
 
-    rebalanceRedDays(schedule, employees, redDates, dates, effectiveCap, fairnessRedDayOff, conflicts);
+    rebalanceRedDays(schedule, employees, redDates, dates, personalCap, fairnessRedDayOff, conflicts);
     // Recompute weekdayOff straight from the schedule (not by subtracting fairnessRedDayOff
     // from the pre-rebalance fairnessOff) — rebalanceRedDays just swapped OFF/WORK cells on
     // red days, so that subtraction would use a stale fairnessOff and desync from reality.
@@ -335,7 +359,7 @@ Hyumu.Scheduler = (function () {
       }
       weekdayOff[emp.id] = count;
     });
-    rebalance(schedule, employees, weekdayDates, dates, effectiveCap, weekdayOff, conflicts, true);
+    rebalance(schedule, employees, weekdayDates, dates, personalCap, weekdayOff, conflicts, true);
 
     // rebalance() above only trades OFF/WORK on the *same date* between two people, which stays
     // staffing-neutral for that day but can leave gaps unfixed simply because the two people who
@@ -353,7 +377,7 @@ Hyumu.Scheduler = (function () {
       }
       monthOff[emp.id] = count;
     });
-    rebalanceDecoupled(schedule, employees, dates, effectiveCap, monthOff, target, conflicts);
+    rebalanceDecoupled(schedule, employees, dates, personalCap, monthOff, target, conflicts);
 
     assignShifts(schedule, employees, dates, rules, conflicts);
 
@@ -494,7 +518,7 @@ Hyumu.Scheduler = (function () {
 
   // swapDates: which dates are eligible to swap on. allDates: the full month, used to
   // correctly measure consecutive-workday streaks across day boundaries not in swapDates.
-  function rebalance(schedule, employees, swapDates, allDates, effectiveCap, offCount, conflicts, silent) {
+  function rebalance(schedule, employees, swapDates, allDates, personalCap, offCount, conflicts, silent) {
     if (employees.length < 2) return;
     const maxIterations = employees.length * swapDates.length * 4;
     let iterations = 0;
@@ -511,7 +535,7 @@ Hyumu.Scheduler = (function () {
       for (let i = idx - 1; i >= 0 && statusOn(empId, allDates[i]) === 'WORK'; i--) back++;
       let fwd = 0;
       for (let i = idx + 1; i < allDates.length && statusOn(empId, allDates[i]) === 'WORK'; i++) fwd++;
-      return back + fwd + 1 > effectiveCap;
+      return back + fwd + 1 > personalCap[empId];
     }
 
     while (iterations < maxIterations) {
@@ -582,7 +606,7 @@ Hyumu.Scheduler = (function () {
   // worked), the cap is relaxed by +1 for that one person only, as a last resort — never
   // globally, and only once every normal-cap swap has been exhausted. This is escalated up to
   // +3 before giving up, since hitting the target always outranks the consecutive-work cap.
-  function rebalanceDecoupled(schedule, employees, dates, effectiveCap, offCount, target, conflicts) {
+  function rebalanceDecoupled(schedule, employees, dates, personalCap, offCount, target, conflicts) {
     if (employees.length < 2) return;
     const maxIterations = employees.length * dates.length * 8;
     const maxCapBonus = 3;
@@ -603,7 +627,7 @@ Hyumu.Scheduler = (function () {
       for (let i = idx - 1; i >= 0 && statusOn(empId, dates[i]) === 'WORK'; i--) back++;
       let fwd = 0;
       for (let i = idx + 1; i < dates.length && statusOn(empId, dates[i]) === 'WORK'; i++) fwd++;
-      return back + fwd + 1 > effectiveCap + bonus;
+      return back + fwd + 1 > personalCap[empId] + bonus;
     }
     function findReduceDate(empId, bonus) {
       for (const date of dates) {
@@ -707,7 +731,7 @@ Hyumu.Scheduler = (function () {
   // Balances red-day (weekend/holiday) OFF within each single-corner group so members
   // take turns resting on red days roughly evenly; multi-corner/no-corner employees
   // fall back to a store-wide group.
-  function rebalanceRedDays(schedule, employees, redDates, allDates, effectiveCap, redDayOff, conflicts) {
+  function rebalanceRedDays(schedule, employees, redDates, allDates, personalCap, redDayOff, conflicts) {
     if (employees.length < 2 || redDates.length === 0) return;
 
     const groups = {};
@@ -730,7 +754,7 @@ Hyumu.Scheduler = (function () {
       for (let i = idx - 1; i >= 0 && statusOn(empId, allDates[i]) === 'WORK'; i--) back++;
       let fwd = 0;
       for (let i = idx + 1; i < allDates.length && statusOn(empId, allDates[i]) === 'WORK'; i++) fwd++;
-      return back + fwd + 1 > effectiveCap;
+      return back + fwd + 1 > personalCap[empId];
     }
 
     Object.entries(groups).forEach(([groupKey, groupEmployees]) => {
