@@ -690,9 +690,9 @@ Hyumu.Render = (function () {
           const conflictAttr = conflictDates.has(d) ? ` data-conflict-date="${d}"` : '';
           return `<th class="${weekendClass}${redClass}${confClass}"${conflictAttr}>${day}<br><span class="wd-label">${Model.WEEKDAY_LABELS[wd]}</span>${holidayHtml}${labelHtml}</th>`;
         }).join('')}
-        <th class="total-col">휴무</th>
         <th class="total-col">오전</th>
         <th class="total-col">오후</th>
+        <th class="total-col">휴무</th>
       </tr>
     `;
 
@@ -723,13 +723,13 @@ Hyumu.Render = (function () {
         }
         return `<td class="cal-cell${statusClass}${weekendClass}${redClass}${confClass}${lockClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}" data-locked="${isPersonalLock ? '1' : '0'}">${text}</td>`;
       }).join('');
-      return `<tr class="cal-row" data-corners="${esc(JSON.stringify(Model.employeeCorners(emp)))}"><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${offCount}</td><td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td></tr>`;
+      return `<tr class="cal-row" data-corners="${esc(JSON.stringify(Model.employeeCorners(emp)))}"><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td><td class="total-col">${offCount}</td></tr>`;
     }).join('');
 
     const summaryRows = [
-      { stat: 'OFF', label: '휴무 인원' },
       { stat: 'MORNING', label: '오전 인원' },
-      { stat: 'AFTERNOON', label: '오후 인원' }
+      { stat: 'AFTERNOON', label: '오후 인원' },
+      { stat: 'OFF', label: '휴무 인원' }
     ].map(({ stat, label }) => `
       <tr class="cal-summary-row" data-stat="${stat}">
         <td class="name-col">${label}</td>
