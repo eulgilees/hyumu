@@ -435,12 +435,17 @@ Hyumu.Scheduler = (function () {
         cornerOffUsed['파트장'] = Infinity;
       }
 
+      // 기본 근무 텀은 2~3일에 하루 휴무 — 4~5일 연속 근무는 정말 어쩔 수 없을 때만(사장님 지시:
+      // "이게 기본이니까 기억해둬"). 그래서 오늘 쉴 사람을 고를 때 현재 연속근무일수를 목표
+      // 휴무일수 편차보다 먼저 본다 — 매번 상한(4일)까지 꽉 채워 일하다 강제휴무로만 쉬는 패턴이
+      // 아니라, 이미 며칠 일한 사람부터 우선적으로 쉬게 해서 짧고 잦은 휴무가 기본값이 되게 한다.
       candidates.sort((a, b) => {
         if (redDay) {
           const redDeficitA = redDayTarget[a.id] - fairnessRedDayOff[a.id];
           const redDeficitB = redDayTarget[b.id] - fairnessRedDayOff[b.id];
           if (redDeficitB !== redDeficitA) return redDeficitB - redDeficitA;
         }
+        if (consecutiveWork[b.id] !== consecutiveWork[a.id]) return consecutiveWork[b.id] - consecutiveWork[a.id];
         const deficitA = target[a.id] - fairnessOff[a.id];
         const deficitB = target[b.id] - fairnessOff[b.id];
         if (deficitB !== deficitA) return deficitB - deficitA;
@@ -448,8 +453,6 @@ Hyumu.Scheduler = (function () {
           const wDiff = weekendOff[a.id] - weekendOff[b.id];
           if (wDiff !== 0) return wDiff;
         }
-        const streakDiff = consecutiveWork[b.id] - consecutiveWork[a.id];
-        if (streakDiff !== 0) return streakDiff;
         return employees.indexOf(a) - employees.indexOf(b);
       });
 
