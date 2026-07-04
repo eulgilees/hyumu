@@ -572,6 +572,16 @@ button {
   background: #f8f9fb;
 }
 
+.cal-summary-row td {
+  font-weight: 600;
+  background: #f1f3f6;
+  border-top: 2px solid #d8dde3;
+}
+
+.cal-summary-row .name-col {
+  background: #f1f3f6 !important;
+}
+
 .wd-label {
   font-size: 10px;
   color: #999;

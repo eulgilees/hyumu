@@ -726,6 +726,18 @@ Hyumu.Render = (function () {
       return `<tr class="cal-row" data-corners="${esc(JSON.stringify(Model.employeeCorners(emp)))}"><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${offCount}</td><td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td></tr>`;
     }).join('');
 
+    const summaryRows = [
+      { stat: 'OFF', label: '휴무 인원' },
+      { stat: 'MORNING', label: '오전 인원' },
+      { stat: 'AFTERNOON', label: '오후 인원' }
+    ].map(({ stat, label }) => `
+      <tr class="cal-summary-row" data-stat="${stat}">
+        <td class="name-col">${label}</td>
+        ${dates.map((d) => `<td class="cal-summary-cell" data-date="${d}"></td>`).join('')}
+        <td class="total-col"></td><td class="total-col"></td><td class="total-col"></td>
+      </tr>
+    `).join('');
+
     container.innerHTML = `
       <section class="screen screen-calendar">
         <h2>결과 캘린더</h2>
@@ -758,6 +770,7 @@ Hyumu.Render = (function () {
           <table class="calendar-table">
             <thead>${headerRow}</thead>
             <tbody>${bodyRows}</tbody>
+            <tfoot>${summaryRows}</tfoot>
           </table>
         </div>
         <div class="calendar-actions">
@@ -781,13 +794,34 @@ Hyumu.Render = (function () {
         handlers.onToggleCell(cell.dataset.emp, cell.dataset.date, cell.dataset.status, cell.dataset.shift || null);
       });
     });
+    function updateDateSummary() {
+      const visibleRows = Array.from(container.querySelectorAll('.cal-row')).filter((row) => row.style.display !== 'none');
+      const counts = { OFF: {}, MORNING: {}, AFTERNOON: {} };
+      dates.forEach((d) => { counts.OFF[d] = 0; counts.MORNING[d] = 0; counts.AFTERNOON[d] = 0; });
+      visibleRows.forEach((row) => {
+        row.querySelectorAll('.cal-cell').forEach((cell) => {
+          const d = cell.dataset.date;
+          if (cell.dataset.status === 'OFF') counts.OFF[d]++;
+          else if (cell.dataset.shift === 'MORNING') counts.MORNING[d]++;
+          else if (cell.dataset.shift === 'AFTERNOON') counts.AFTERNOON[d]++;
+        });
+      });
+      container.querySelectorAll('.cal-summary-row').forEach((row) => {
+        const stat = row.dataset.stat;
+        row.querySelectorAll('.cal-summary-cell').forEach((cell) => {
+          cell.textContent = counts[stat][cell.dataset.date];
+        });
+      });
+    }
     function applyCornerFilter() {
       const checkedCorners = Array.from(container.querySelectorAll('.cal-corner-filter:checked')).map((c) => c.value);
       container.querySelectorAll('.cal-row').forEach((row) => {
         const rowCorners = JSON.parse(row.dataset.corners || '[]');
         row.style.display = (checkedCorners.length === 0 || checkedCorners.some((c) => rowCorners.includes(c))) ? '' : 'none';
       });
+      updateDateSummary();
     }
+    updateDateSummary();
     container.querySelectorAll('.cal-corner-group-filter').forEach((groupCb) => groupCb.addEventListener('change', () => {
       const corners = JSON.parse(groupCb.dataset.corners || '[]');
       container.querySelectorAll('.cal-corner-filter').forEach((cb) => {
