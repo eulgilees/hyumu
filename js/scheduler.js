@@ -178,6 +178,11 @@ Hyumu.Scheduler = (function () {
     // 투입 대상에서 제외한다(사장님 지시: "가깝게? 그거 안돼... 법적으로 지켜야할 사항이야").
     backfillPartLeaders(schedule, employees, deptEmployees, deptRules, rules, dates, conflicts, targetByEmpId);
 
+    // Fix any corner (기프트/문보장 등) that still falls short of its own morning+afternoon
+    // minimum after everything else has run — first from within the corner's own staff, then by
+    // pulling in a 파트장 as floating coverage (사장님 지시).
+    backfillCornerShortfalls(schedule, employees, dates, cornerMinStaffGlobal, conflicts, targetByEmpId);
+
     // Final safety net: multiple passes above (rebalance, trim, backfill) each individually check
     // the consecutive-work cap before converting a rest day back to WORK, but a bug in any one of
     // them can still slip a violation through — and this is a hard, non-negotiable limit (사장님
@@ -281,7 +286,6 @@ Hyumu.Scheduler = (function () {
     // across departments (e.g. a 파트장 who also covers 기프트, routed into the 관리 group), so
     // the cap has to be shared across every group's Phase 1 fill and catch-up passes, or two
     // groups can each grant OFF to "their" share of the same corner without seeing each other.
-    const cornerMinStaff = cornerMinStaffGlobal;
 
     // Fairness group headcount: small sub-corners (e.g. 기프트/학용/필기구/디자인문구)
     // are pooled together per Model.cornerFairnessGroup so red-day rest is shared
@@ -414,16 +418,10 @@ Hyumu.Scheduler = (function () {
           cornerOffUsed[c] = (cornerOffUsed[c] || 0) + 1;
         });
       });
-      Object.entries(cornerOffUsed).forEach(([corner, used]) => {
-        if (cornerAllowedOff[corner] != null && used > cornerAllowedOff[corner]) {
-          conflicts.push({
-            date,
-            type: 'CORNER_MIN_STAFF_VIOLATION',
-            message: `${date}: 고정/수동/강제 휴무만으로 '${corner}' 코너 최소 인원(${cornerMinStaff[corner] || 0}명)을 채울 수 없습니다.`,
-            employeeIds: []
-          });
-        }
-      });
+      // Corner shortfalls caused by locked/forced OFF alone are no longer reported here — a
+      // later pass (backfillCornerShortfalls, run once at the very end of generateSchedule after
+      // every group has been scheduled) tries to fix them first by pulling in a same-corner
+      // AUTO_FAIRNESS rest day or a 파트장, and only reports the ones it genuinely can't fix.
       // A sibling department is already short-staffed on this date, so every 파트장 needs to stay
       // available for backfillPartLeaders rather than one of them taking rest here — block ANY
       // new 파트장 rest pick today (not just once the cap is reached), since backfillPartLeaders
@@ -608,6 +606,80 @@ Hyumu.Scheduler = (function () {
         }
       }
     });
+  }
+
+  // Runs once at the very end, after every department/관리 group and backfillPartLeaders have
+  // already been scheduled. Some corners (기프트/문보장 등) can end up short of their own
+  // morning+afternoon minimum purely from locked leave + consecutive-cap forced rest landing on
+  // the same day — this fixes that by (1) first trying to pull a same-corner AUTO_FAIRNESS rest
+  // day back to WORK, and only if that's not enough, (2) pulling in a 파트장 as floating coverage
+  // (사장님 지시: "파트장님을 투입하는걸로 하는데 최대한 직원들 안에서 해결해야해"). Both steps
+  // only ever touch someone who is already resting MORE than their own guaranteed target
+  // off-days count, so nobody's guaranteed rest gets sacrificed for staffing.
+  function backfillCornerShortfalls(schedule, employees, dates, cornerMinStaffGlobal, conflicts, targetByEmpId) {
+    const offCount = {};
+    employees.forEach((emp) => {
+      let count = 0;
+      for (const date of dates) {
+        const cell = schedule[emp.id][date];
+        if (cell && cell.status === 'OFF' && !isExemptLockedOff(emp, date, schedule)) count++;
+      }
+      offCount[emp.id] = count;
+    });
+    const aboveTarget = (emp) => targetByEmpId[emp.id] == null || offCount[emp.id] > targetByEmpId[emp.id];
+
+    const partLeaders = employees.filter((emp) => Model.employeeCorners(emp).includes('파트장'));
+    const partLeaderMin = cornerMinStaffGlobal['파트장'] || 0;
+    const corners = Object.keys(cornerMinStaffGlobal).filter((c) => c !== '파트장');
+
+    for (const date of dates) {
+      for (const corner of corners) {
+        const need = cornerMinStaffGlobal[corner];
+        if (!need) continue;
+        const members = employees.filter((emp) => Model.employeeCorners(emp).includes(corner));
+        let shortfall = need - members.filter((emp) => schedule[emp.id][date].status === 'WORK').length;
+        if (shortfall <= 0) continue;
+
+        const sameCornerCandidates = members
+          .filter((emp) => schedule[emp.id][date].status === 'OFF' && schedule[emp.id][date].source === 'AUTO_FAIRNESS' && aboveTarget(emp))
+          .sort((a, b) => offCount[b.id] - offCount[a.id]);
+        for (const emp of sameCornerCandidates) {
+          if (shortfall <= 0) break;
+          setCell(schedule, emp.id, date, 'WORK', 'AUTO');
+          offCount[emp.id]--;
+          shortfall--;
+        }
+        if (shortfall <= 0) continue;
+
+        // 파트장 already working beyond their own daily minimum are free floating coverage —
+        // count that slack toward this corner's gap before pulling anyone new off rest.
+        const workingPartLeadersToday = partLeaders.filter((emp) => schedule[emp.id][date].status === 'WORK').length;
+        shortfall -= Math.min(shortfall, Math.max(0, workingPartLeadersToday - partLeaderMin));
+        if (shortfall <= 0) continue;
+
+        const offPartLeaders = partLeaders
+          .filter((emp) => {
+            const cell = schedule[emp.id][date];
+            return cell.status === 'OFF' && cell.source !== 'BASE' && cell.source !== 'MANUAL' && cell.source !== 'AUTO_FORCED' && aboveTarget(emp);
+          })
+          .sort((a, b) => offCount[b.id] - offCount[a.id]);
+        for (const emp of offPartLeaders) {
+          if (shortfall <= 0) break;
+          setCell(schedule, emp.id, date, 'WORK', 'AUTO');
+          offCount[emp.id]--;
+          shortfall--;
+        }
+
+        if (shortfall > 0) {
+          conflicts.push({
+            date,
+            type: 'CORNER_MIN_STAFF_VIOLATION',
+            message: `${date}: '${corner}' 코너 최소 인원(${need}명)을 다른 직원 조정과 파트장 투입만으로도 채울 수 없습니다.`,
+            employeeIds: []
+          });
+        }
+      }
+    }
   }
 
   function backfillPartLeaders(schedule, employees, deptEmployees, deptRules, rules, dates, conflicts, targetByEmpId) {
