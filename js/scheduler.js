@@ -181,7 +181,7 @@ Hyumu.Scheduler = (function () {
     // Fix any corner (기프트/문보장 등) that still falls short of its own morning+afternoon
     // minimum after everything else has run — first from within the corner's own staff, then by
     // pulling in a 파트장 as floating coverage (사장님 지시).
-    backfillCornerShortfalls(schedule, employees, dates, cornerMinStaffGlobal, conflicts, targetByEmpId);
+    backfillCornerShortfalls(schedule, employees, dates, cornerMinStaffGlobal, personalCapByEmpId, conflicts);
 
     // Final safety net: multiple passes above (rebalance, trim, backfill) each individually check
     // the consecutive-work cap before converting a rest day back to WORK, but a bug in any one of
@@ -639,21 +639,113 @@ Hyumu.Scheduler = (function () {
   // (사장님 지시: "파트장님을 투입하는걸로 하는데 최대한 직원들 안에서 해결해야해"). Both steps
   // only ever touch someone who is already resting MORE than their own guaranteed target
   // off-days count, so nobody's guaranteed rest gets sacrificed for staffing.
-  function backfillCornerShortfalls(schedule, employees, dates, cornerMinStaffGlobal, conflicts, targetByEmpId) {
-    const offCount = {};
-    employees.forEach((emp) => {
-      let count = 0;
-      for (const date of dates) {
-        const cell = schedule[emp.id][date];
-        if (cell && cell.status === 'OFF' && !isExemptLockedOff(emp, date, schedule)) count++;
+  // Would swapping emp's status between fromDate (OFF -> WORK) and toDate (WORK -> OFF) push
+  // any run of consecutive workdays past emp's personal cap, anywhere in the month? Checked by
+  // simulating the swap over the whole month rather than just the two affected days, since a
+  // short gap between fromDate and toDate can chain two runs together.
+  function wouldSwapBreakCap(emp, fromDate, toDate, dates, schedule, personalCap) {
+    let maxRun = 0;
+    let run = 0;
+    for (const d of dates) {
+      let status = schedule[emp.id][d].status;
+      if (d === fromDate) status = 'WORK';
+      else if (d === toDate) status = 'OFF';
+      if (status === 'WORK') {
+        run++;
+        maxRun = Math.max(maxRun, run);
+      } else {
+        run = 0;
       }
-      offCount[emp.id] = count;
-    });
-    const aboveTarget = (emp) => targetByEmpId[emp.id] == null || offCount[emp.id] > targetByEmpId[emp.id];
+    }
+    return maxRun > personalCap[emp.id];
+  }
 
+  // Finds a plan (a chain of one or more { emp, fromDate, toDate } moves) that lets `emp` take
+  // the rest day they're currently taking on `fromDate` on some other date instead, without
+  // breaking anyone's consecutive-work cap or dropping any corner below its minimum. Each move
+  // only relocates WHICH day someone rests, never how MANY days total, so nobody's guaranteed
+  // target off-days count is ever put at risk — unlike cancelling a rest day outright, this is
+  // always safe to attempt.
+  //
+  // A single relocation can fail purely because every otherwise-valid destination day already
+  // has a different corner-mate resting there (corners this tight only ever allow one person off
+  // per day) — the classic "musical chairs" case. So when a candidate destination is blocked by
+  // exactly one such colleague, this recurses to try relocating THAT colleague off that date
+  // first (bounded by `depth`), chaining several small moves together to open up a slot that no
+  // single direct move could reach. Apply the returned plan in reverse order (innermost move
+  // first) so each move's pre-conditions still hold when it's actually applied.
+  function findRelocationDate(schedule, emp, fromDate, dates, personalCap, cornerMinStaffGlobal, allEmployees, avoid, depth) {
+    avoid = avoid || new Set([emp.id + '|' + fromDate]);
+    depth = depth == null ? 1 : depth;
+    const corners = Model.employeeCorners(emp);
+    if (corners.length === 0) return null;
+
+    function cornerGapsWithoutEmp(date) {
+      const gaps = [];
+      corners.forEach((c) => {
+        const need = cornerMinStaffGlobal[c];
+        if (!need) return;
+        const working = allEmployees.filter((e) => e.id !== emp.id && Model.employeeCorners(e).includes(c) && schedule[e.id][date].status === 'WORK').length;
+        if (working < need) gaps.push({ corner: c, deficit: need - working });
+      });
+      return gaps;
+    }
+
+    const fromIdx = dates.indexOf(fromDate);
+    const order = [];
+    for (let d = 1; d < dates.length; d++) {
+      if (fromIdx + d < dates.length) order.push(fromIdx + d);
+      if (fromIdx - d >= 0) order.push(fromIdx - d);
+    }
+
+    for (const idx of order) {
+      const toDate = dates[idx];
+      const cell = schedule[emp.id][toDate];
+      if (cell.status !== 'WORK' || cell.source !== 'AUTO') continue;
+      if (wouldSwapBreakCap(emp, fromDate, toDate, dates, schedule, personalCap)) continue;
+
+      const gaps = cornerGapsWithoutEmp(toDate);
+      if (gaps.length === 0) return [{ emp, fromDate, toDate }];
+      if (depth <= 0 || gaps.length > 1 || gaps[0].deficit !== 1) continue;
+
+      const blockers = allEmployees.filter((e) => {
+        if (e.id === emp.id || avoid.has(e.id + '|' + toDate)) return false;
+        if (!Model.employeeCorners(e).includes(gaps[0].corner)) return false;
+        const c = schedule[e.id][toDate];
+        return c.status === 'OFF' && (c.source === 'AUTO_FAIRNESS' || c.source === 'AUTO_FORCED');
+      });
+      for (const blocker of blockers) {
+        const nextAvoid = new Set(avoid);
+        nextAvoid.add(blocker.id + '|' + toDate);
+        const subPlan = findRelocationDate(schedule, blocker, toDate, dates, personalCap, cornerMinStaffGlobal, allEmployees, nextAvoid, depth - 1);
+        if (subPlan) return [{ emp, fromDate, toDate }, ...subPlan];
+      }
+    }
+    return null;
+  }
+
+  function applyRelocationPlan(schedule, plan) {
+    for (let i = plan.length - 1; i >= 0; i--) {
+      const { emp, fromDate, toDate } = plan[i];
+      const source = schedule[emp.id][fromDate].source;
+      setCell(schedule, emp.id, fromDate, 'WORK', 'AUTO');
+      setCell(schedule, emp.id, toDate, 'OFF', source);
+    }
+  }
+
+  // Runs once at the very end, after every department/관리 group and backfillPartLeaders have
+  // already been scheduled. Some corners (기프트/문보장 등) can end up short of their own
+  // morning+afternoon minimum purely from locked leave + consecutive-cap forced rest landing on
+  // the same day. Fixes it by relocating someone's rest day to a different date rather than
+  // cancelling it outright — first a same-corner member's, then (as floating coverage) a
+  // 파트장's — which preserves everyone's total off-day count exactly, so nobody's guaranteed
+  // rest is ever sacrificed for staffing (사장님 지시: "파트장님을 투입하는걸로 하는데 최대한
+  // 직원들 안에서 해결해야해").
+  function backfillCornerShortfalls(schedule, employees, dates, cornerMinStaffGlobal, personalCap, conflicts) {
     const partLeaders = employees.filter((emp) => Model.employeeCorners(emp).includes('파트장'));
     const partLeaderMin = cornerMinStaffGlobal['파트장'] || 0;
     const corners = Object.keys(cornerMinStaffGlobal).filter((c) => c !== '파트장');
+    const relocatable = (cell) => cell.status === 'OFF' && (cell.source === 'AUTO_FAIRNESS' || cell.source === 'AUTO_FORCED');
 
     for (const date of dates) {
       for (const corner of corners) {
@@ -663,33 +755,28 @@ Hyumu.Scheduler = (function () {
         let shortfall = need - members.filter((emp) => schedule[emp.id][date].status === 'WORK').length;
         if (shortfall <= 0) continue;
 
-        const sameCornerCandidates = members
-          .filter((emp) => schedule[emp.id][date].status === 'OFF' && schedule[emp.id][date].source === 'AUTO_FAIRNESS' && aboveTarget(emp))
-          .sort((a, b) => offCount[b.id] - offCount[a.id]);
+        const sameCornerCandidates = members.filter((emp) => relocatable(schedule[emp.id][date]));
         for (const emp of sameCornerCandidates) {
           if (shortfall <= 0) break;
-          setCell(schedule, emp.id, date, 'WORK', 'AUTO');
-          offCount[emp.id]--;
+          const plan = findRelocationDate(schedule, emp, date, dates, personalCap, cornerMinStaffGlobal, employees);
+          if (!plan) continue;
+          applyRelocationPlan(schedule, plan);
           shortfall--;
         }
         if (shortfall <= 0) continue;
 
         // 파트장 already working beyond their own daily minimum are free floating coverage —
-        // count that slack toward this corner's gap before pulling anyone new off rest.
+        // count that slack toward this corner's gap before relocating anyone else's rest.
         const workingPartLeadersToday = partLeaders.filter((emp) => schedule[emp.id][date].status === 'WORK').length;
         shortfall -= Math.min(shortfall, Math.max(0, workingPartLeadersToday - partLeaderMin));
         if (shortfall <= 0) continue;
 
-        const offPartLeaders = partLeaders
-          .filter((emp) => {
-            const cell = schedule[emp.id][date];
-            return cell.status === 'OFF' && cell.source !== 'BASE' && cell.source !== 'MANUAL' && cell.source !== 'AUTO_FORCED' && aboveTarget(emp);
-          })
-          .sort((a, b) => offCount[b.id] - offCount[a.id]);
+        const offPartLeaders = partLeaders.filter((emp) => relocatable(schedule[emp.id][date]));
         for (const emp of offPartLeaders) {
           if (shortfall <= 0) break;
-          setCell(schedule, emp.id, date, 'WORK', 'AUTO');
-          offCount[emp.id]--;
+          const plan = findRelocationDate(schedule, emp, date, dates, personalCap, cornerMinStaffGlobal, employees);
+          if (!plan) continue;
+          applyRelocationPlan(schedule, plan);
           shortfall--;
         }
 
