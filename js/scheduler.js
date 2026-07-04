@@ -741,6 +741,11 @@ Hyumu.Scheduler = (function () {
   // 파트장's — which preserves everyone's total off-day count exactly, so nobody's guaranteed
   // rest is ever sacrificed for staffing (사장님 지시: "파트장님을 투입하는걸로 하는데 최대한
   // 직원들 안에서 해결해야해").
+  // 문보장은 별개 코너라 다른 파트의 도움을 주지도, 받지도 않는다(사장님 지시: "문보장은
+  // 별개라 문보장 인원으로 채우면 안돼") — 그 외 코너(기프트/학용/필기구/디자인문구)는 서로
+  // 급할 때 임시로 지원할 수 있다.
+  const LEND_ISOLATED_CORNERS = { '문보장': true };
+
   function backfillCornerShortfalls(schedule, employees, dates, cornerMinStaffGlobal, personalCap, conflicts) {
     const partLeaders = employees.filter((emp) => Model.employeeCorners(emp).includes('파트장'));
     const partLeaderMin = cornerMinStaffGlobal['파트장'] || 0;
@@ -779,8 +784,31 @@ Hyumu.Scheduler = (function () {
           applyRelocationPlan(schedule, plan);
           shortfall--;
         }
+        if (shortfall <= 0) continue;
 
-        if (shortfall > 0) {
+        // 다른 파트(문보장 제외) 지원: 문보장이 아닌 다른 코너 소속 직원 중 재량휴무/강제휴무로
+        // 쉬고 있는 사람을 임시로 투입한다.
+        if (!LEND_ISOLATED_CORNERS[corner]) {
+          const lenders = employees.filter((emp) =>
+            !Model.employeeCorners(emp).includes(corner) &&
+            !Model.employeeCorners(emp).some((c) => LEND_ISOLATED_CORNERS[c]) &&
+            relocatable(schedule[emp.id][date])
+          );
+          for (const emp of lenders) {
+            if (shortfall <= 0) break;
+            const plan = findRelocationDate(schedule, emp, date, dates, personalCap, cornerMinStaffGlobal, employees);
+            if (!plan) continue;
+            applyRelocationPlan(schedule, plan);
+            shortfall--;
+          }
+        }
+
+        // 기프트는 오전1+오후1을 목표로 하되, 모든 지원 수단을 다 써도 안 되면 최소 1명만
+        // 근무해도 괜찮다는 게 실제 기준이다(사장님 지시: "기프트는 한명은 무조건 하루에
+        // 근무한다는 조건이야"). 다른 코너는 need 전체를 그대로 하드 요건으로 유지한다.
+        const hardFloor = corner === '기프트' ? 1 : need;
+        const workingNow = members.filter((emp) => schedule[emp.id][date].status === 'WORK').length;
+        if (shortfall > 0 && workingNow < hardFloor) {
           conflicts.push({
             date,
             type: 'CORNER_MIN_STAFF_VIOLATION',
@@ -982,7 +1010,11 @@ Hyumu.Scheduler = (function () {
         const remainM = Math.max(0, needM - cornerLockedM);
         const remainA = Math.max(0, needA - cornerLockedA);
 
-        if (remainM + remainA > cornerFlexible.length) {
+        // 기프트는 오전1+오후1을 목표로 하되, 정말 안 될 땐 최소 1명만 근무해도 괜찮다는 게
+        // 실제 기준이다(사장님 지시: "기프트는 한명은 무조건 하루에 근무한다는 조건이야") —
+        // 다른 코너는 그대로 오전/오후 둘 다 채워야 하는 하드 요건 유지.
+        const hardFloor = corner === '기프트' ? 1 : needM + needA;
+        if (remainM + remainA > cornerFlexible.length && cornerWorking.length < hardFloor) {
           conflicts.push({
             date,
             type: 'CORNER_SHIFT_MIN_VIOLATION',
