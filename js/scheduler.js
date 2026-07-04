@@ -332,6 +332,26 @@ Hyumu.Scheduler = (function () {
       redDayTarget[emp.id] = Math.max(lockedRedDayOffCount[emp.id], base);
     });
 
+    // Looks ahead: if `emp` keeps working every day from here on, their consecutive-work cap
+    // will force them to rest on a specific future date. If a corner-mate already has locked
+    // (BASE/MANUAL) leave on that exact future date, forcing `emp` to rest that same day would
+    // empty the corner out — so today is a good day to give `emp` a voluntary rest instead,
+    // which resets their streak and pushes the forced date past the collision.
+    function forecastsForcedCollision(emp, dayIndex) {
+      const daysUntilForced = personalCap[emp.id] - consecutiveWork[emp.id];
+      if (daysUntilForced <= 0) return false;
+      const forcedIdx = dayIndex + daysUntilForced;
+      if (forcedIdx >= dates.length) return false;
+      const forcedDate = dates[forcedIdx];
+      const corners = Model.employeeCorners(emp);
+      if (corners.length === 0) return false;
+      return corners.some((c) => allEmployees.some((mate) => {
+        if (mate.id === emp.id || !Model.employeeCorners(mate).includes(c)) return false;
+        const cell = schedule[mate.id][forcedDate];
+        return cell && cell.status === 'OFF' && (cell.source === 'BASE' || cell.source === 'MANUAL');
+      }));
+    }
+
     // Phase 1: chronological greedy fill
     // totalOffSoFar tracks the running sum of fairnessOff across all employees, used below to
     // pace daily rest slots against the target instead of against staffing headroom.
@@ -438,6 +458,9 @@ Hyumu.Scheduler = (function () {
       // 휴무일수 편차보다 먼저 본다 — 매번 상한(4일)까지 꽉 채워 일하다 강제휴무로만 쉬는 패턴이
       // 아니라, 이미 며칠 일한 사람부터 우선적으로 쉬게 해서 짧고 잦은 휴무가 기본값이 되게 한다.
       candidates.sort((a, b) => {
+        const collideA = forecastsForcedCollision(a, dayIndex) ? 1 : 0;
+        const collideB = forecastsForcedCollision(b, dayIndex) ? 1 : 0;
+        if (collideA !== collideB) return collideB - collideA;
         if (redDay) {
           const redDeficitA = redDayTarget[a.id] - fairnessRedDayOff[a.id];
           const redDeficitB = redDayTarget[b.id] - fairnessRedDayOff[b.id];
