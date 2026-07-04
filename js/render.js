@@ -489,7 +489,7 @@ Hyumu.Render = (function () {
                 <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="maxConsecutiveWorkDays" min="1" value="${dr.maxConsecutiveWorkDays != null ? dr.maxConsecutiveWorkDays : rules.maxConsecutiveWorkDays}">
               </div>
               <div class="field-row">
-                <label>오전조 최소 인원</label>
+                <label>오전조 최소 인원(=최대 인원)</label>
                 <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="minMorningStaff" min="0" value="${dr.minMorningStaff != null ? dr.minMorningStaff : (rules.minMorningStaff || 0)}">
               </div>
               <div class="field-row">

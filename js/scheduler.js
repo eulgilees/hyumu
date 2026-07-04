@@ -851,11 +851,19 @@ Hyumu.Scheduler = (function () {
       let dayMorningCount = lockedMorning.length + chosenMorning.length;
       let dayAfternoonCount = lockedAfternoon.length + chosenAfternoon.length;
 
+      // 오전조는 최소 인원이 곧 최대 인원이므로(위 needMorning만큼만 채움), 이미 오전 최소를
+      // 채운 뒤 남는 사람은 선호도와 무관하게 전부 오후로 보낸다. minMorning이 설정되지
+      // 않은 경우(0)에는 이 제약이 없으므로 기존처럼 선호/균형 기준으로 배정한다.
       leftover.sort(byMorningNeedAsc);
       for (const e of leftover) {
-        const pref = shiftBias(e, date, dates, schedule, rules);
-        const diff = morningCount[e.id] - afternoonCount[e.id];
-        const assignMorning = pref !== 0 ? pref < 0 : (diff < 0 || (diff === 0 && dayMorningCount <= dayAfternoonCount));
+        let assignMorning;
+        if (minMorning > 0) {
+          assignMorning = false;
+        } else {
+          const pref = shiftBias(e, date, dates, schedule, rules);
+          const diff = morningCount[e.id] - afternoonCount[e.id];
+          assignMorning = pref !== 0 ? pref < 0 : (diff < 0 || (diff === 0 && dayMorningCount <= dayAfternoonCount));
+        }
         if (assignMorning) {
           chosenMorning.push(e);
           dayMorningCount++;
