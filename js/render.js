@@ -726,7 +726,8 @@ Hyumu.Render = (function () {
         let statusClass = '';
         if (cell.status === 'OFF') {
           offCount++;
-          text = '휴';
+          const leaveType = isPersonalLock ? Model.leaveTypeOf(emp, d) : null;
+          text = leaveType && leaveType !== 'PERSONAL' ? esc(Model.LEAVE_TYPES[leaveType]) : '휴';
           statusClass = ' cell-off';
         } else {
           text = cell.shift === 'MORNING' ? '전' : cell.shift === 'AFTERNOON' ? '후' : '';
