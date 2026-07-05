@@ -735,7 +735,11 @@ Hyumu.Render = (function () {
           if (cell.shift === 'MORNING') morningCount++;
           else if (cell.shift === 'AFTERNOON') afternoonCount++;
         }
-        return `<td class="cal-cell${statusClass}${weekendClass}${redClass}${confClass}${lockClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}" data-locked="${isPersonalLock ? '1' : '0'}">${text}</td>`;
+        const isHolidayWork = cell.status === 'WORK' && !!Model.holidayName(d);
+        const holidayBadge = isHolidayWork
+          ? `<span class="holiday-choice-badge${cell.holidayChoice ? ' set' : ''}" data-emp="${emp.id}" data-date="${d}" data-choice="${cell.holidayChoice || ''}" title="공휴일 근무: 수당/대체휴일 선택">${cell.holidayChoice === 'SUBSTITUTE' ? '대' : cell.holidayChoice === 'PAY' ? '수' : '?'}</span>`
+          : '';
+        return `<td class="cal-cell${statusClass}${weekendClass}${redClass}${confClass}${lockClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}" data-locked="${isPersonalLock ? '1' : '0'}">${text}${holidayBadge}</td>`;
       }).join('');
       return `<tr class="cal-row" data-corners="${esc(JSON.stringify(Model.employeeCorners(emp)))}"><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td><td class="total-col">${offCount}</td></tr>`;
     }).join('');
@@ -806,6 +810,14 @@ Hyumu.Render = (function () {
       cell.addEventListener('click', () => {
         if (cell.dataset.locked === '1') return;
         handlers.onToggleCell(cell.dataset.emp, cell.dataset.date, cell.dataset.status, cell.dataset.shift || null);
+      });
+    });
+    container.querySelectorAll('.holiday-choice-badge').forEach((badge) => {
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const order = ['', 'PAY', 'SUBSTITUTE'];
+        const next = order[(order.indexOf(badge.dataset.choice) + 1) % order.length];
+        handlers.onSetHolidayChoice(badge.dataset.emp, badge.dataset.date, next || null);
       });
     });
     function updateDateSummary() {

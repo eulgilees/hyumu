@@ -316,6 +316,13 @@ Hyumu.App = (function () {
   };
 
   const calendarHandlers = {
+    async onSetHolidayChoice(empId, date, choice) {
+      const cell = doc.schedule[empId] && doc.schedule[empId][date];
+      if (!cell) return;
+      cell.holidayChoice = choice;
+      await save();
+      renderContent();
+    },
     async onToggleCell(empId, date, currentStatus, currentShift) {
       let next;
       if (currentStatus === 'OFF') {

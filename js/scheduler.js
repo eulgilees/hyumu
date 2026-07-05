@@ -3,8 +3,8 @@ window.Hyumu = window.Hyumu || {};
 Hyumu.Scheduler = (function () {
   const Model = Hyumu.Model;
 
-  function setCell(schedule, empId, date, status, source, shift) {
-    schedule[empId][date] = { status, source, shift: shift || null };
+  function setCell(schedule, empId, date, status, source, shift, holidayChoice) {
+    schedule[empId][date] = { status, source, shift: shift || null, holidayChoice: holidayChoice || null };
   }
 
   function isLocked(schedule, empId, date) {
@@ -63,10 +63,32 @@ Hyumu.Scheduler = (function () {
     return carry;
   }
 
+  // 공휴일에 근무하면 수당 또는 대체휴일 중 하나를 본인이 고른다(사장님 지시: "빨간날 근무는
+  // 본인이 설정하게 해서 고를 수 있게 할까") — 대체휴일을 고른 날만큼 이번 달 목표 휴무일수에
+  // 더해줘서, 그만큼 자동으로 하루 더 쉬게 배정되도록 한다. 이번 달 안에서만 쓰는 걸로
+  // 한정한다(사장님 지시: "이번 달 안에서만 사용").
+  function computeSubstituteBonus(oldSchedule, employees, dates) {
+    const bonus = {};
+    employees.forEach((emp) => {
+      let count = 0;
+      const empSchedule = oldSchedule && oldSchedule[emp.id];
+      if (empSchedule) {
+        dates.forEach((d) => {
+          const cell = empSchedule[d];
+          if (cell && cell.status === 'WORK' && cell.holidayChoice === 'SUBSTITUTE' && Model.holidayName(d)) count++;
+        });
+      }
+      bonus[emp.id] = count;
+    });
+    return bonus;
+  }
+
   function generateSchedule(doc, previousMonthDoc) {
     const { employees, rules, month } = doc;
     const dates = Model.allDatesOfMonth(month.year, month.month);
     const carryStreakByEmpId = computeCarryStreak(previousMonthDoc);
+    const substituteBonusByEmpId = computeSubstituteBonus(doc.schedule, employees, dates);
+    const oldScheduleForHolidayChoices = doc.schedule;
 
     const schedule = {};
     employees.forEach((emp) => {
@@ -156,7 +178,7 @@ Hyumu.Scheduler = (function () {
     ['문구', '서적'].forEach((dept) => {
       if (deptEmployees[dept].length === 0) return;
       const groupRules = Object.assign({}, rules, deptRules[dept] || {});
-      const result = runGroupSchedule(deptEmployees[dept], groupRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal, undefined, carryStreakByEmpId);
+      const result = runGroupSchedule(deptEmployees[dept], groupRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal, undefined, carryStreakByEmpId, substituteBonusByEmpId);
       Object.assign(targetByEmpId, result.target);
       Object.assign(personalCapByEmpId, result.personalCap);
     });
@@ -186,7 +208,7 @@ Hyumu.Scheduler = (function () {
       // 1~3명)에 그대로 적용하면 매일 인원 부족으로 뜬다. 관리는 인원 하한 없이 목표
       // 휴무일수 페이스와 연속근무 제한만 따른다(점장은 상관없다는 사장님 지시).
       const adminRules = Object.assign({}, rules, { minStaffDefault: 0, minMorningStaff: 0, minAfternoonStaff: 0 });
-      const adminResult = runGroupSchedule(adminEmployees, adminRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal, deptShortfallDates, carryStreakByEmpId);
+      const adminResult = runGroupSchedule(adminEmployees, adminRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal, deptShortfallDates, carryStreakByEmpId, substituteBonusByEmpId);
       Object.assign(targetByEmpId, adminResult.target);
       Object.assign(personalCapByEmpId, adminResult.personalCap);
     }
@@ -215,6 +237,23 @@ Hyumu.Scheduler = (function () {
 
     assignShifts(schedule, employees, dates, rules, conflicts);
 
+    // 이미 골라둔 수당/대체휴일 선택은 재계산해도 유지한다 — 단, 그날 그 사람이 더 이상
+    // 근무가 아니게 바뀌었으면(재조정으로 다른 사람이 그 공휴일에 들어감) 의미가 없어지니
+    // 지운다.
+    if (oldScheduleForHolidayChoices) {
+      employees.forEach((emp) => {
+        const oldEmpSchedule = oldScheduleForHolidayChoices[emp.id];
+        if (!oldEmpSchedule) return;
+        dates.forEach((d) => {
+          const oldCell = oldEmpSchedule[d];
+          const newCell = schedule[emp.id][d];
+          if (oldCell && oldCell.holidayChoice && newCell && newCell.status === 'WORK' && Model.holidayName(d)) {
+            newCell.holidayChoice = oldCell.holidayChoice;
+          }
+        });
+      });
+    }
+
     doc.schedule = schedule;
     doc.conflicts = conflicts;
     return doc;
@@ -223,7 +262,7 @@ Hyumu.Scheduler = (function () {
   // Runs the full Phase 1 greedy fill + rebalance passes for one self-contained pool of
   // employees (a department, or the 관리 catch-all), writing into the shared `schedule` and
   // `conflicts`. Everything here only ever looks at `groupEmployees` — no cross-group effects.
-  function runGroupSchedule(groupEmployees, rules, schedule, dates, conflicts, allEmployees, cornerAllowedOff, cornerMinStaffGlobal, excludeDatesForSlack, carryStreakByEmpId) {
+  function runGroupSchedule(groupEmployees, rules, schedule, dates, conflicts, allEmployees, cornerAllowedOff, cornerMinStaffGlobal, excludeDatesForSlack, carryStreakByEmpId, substituteBonusByEmpId) {
     const n = groupEmployees.length;
     const employees = groupEmployees;
 
@@ -274,7 +313,8 @@ Hyumu.Scheduler = (function () {
         })();
     const target = {};
     employees.forEach((emp) => {
-      target[emp.id] = Math.max(lockedOffCount[emp.id], baseTarget);
+      const substituteBonus = (substituteBonusByEmpId && substituteBonusByEmpId[emp.id]) || 0;
+      target[emp.id] = Math.max(lockedOffCount[emp.id], baseTarget) + substituteBonus;
     });
     const totalTargetSum = employees.reduce((sum, emp) => sum + target[emp.id], 0);
 
