@@ -9,6 +9,14 @@ Hyumu.Render = (function () {
     }[c]));
   }
 
+  // 필수 = 스케줄러가 절대 깨지 않는 하드 조건, 권장 = 최대한 지키되 다른 필수 조건과
+  // 충돌하면 양보될 수 있는 소프트 조건. 규칙 화면에서 사장님이 한눈에 구분하도록 표시.
+  function ruleBadge(type) {
+    return type === 'required'
+      ? '<span class="rule-badge rule-badge-required">필수</span>'
+      : '<span class="rule-badge rule-badge-recommended">권장</span>';
+  }
+
   let openCalendarPopup = null;
 
   function closeCalendarPopup() {
@@ -459,12 +467,12 @@ Hyumu.Render = (function () {
         <h2>규칙 설정</h2>
         ${warn}
         <div class="field-row">
-          <label>목표 휴무일수 (직원 1인당, 이번 달 기준)</label>
+          <label>목표 휴무일수 (직원 1인당, 이번 달 기준)${ruleBadge('required')}</label>
           <input type="number" id="rule-target-off-days" min="0" step="0.5" value="${rules.targetOffDays != null ? rules.targetOffDays : ''}" placeholder="예: 9">
         </div>
         <p class="hint">위 값을 입력하면 아래 "기본 최소 근무 인원"이 자동으로 계산되어 반영됩니다. 아래 값을 직접 수정하면 이 자동 계산은 무시됩니다.</p>
         <div class="field-row">
-          <label>며칠 이상 연달아 휴무 시</label>
+          <label>며칠 이상 연달아 휴무 시${ruleBadge('required')}</label>
           <input type="number" id="rule-long-break-days" min="2" value="${rules.longBreakDays != null ? rules.longBreakDays : ''}" placeholder="예: 4">
         </div>
         <div class="field-row">
@@ -481,19 +489,19 @@ Hyumu.Render = (function () {
             <div class="dept-rules-col">
               <h3>${dept}</h3>
               <div class="field-row">
-                <label>기본 최소 근무 인원</label>
+                <label>기본 최소 근무 인원${ruleBadge('recommended')}</label>
                 <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="minStaffDefault" min="0" value="${dr.minStaffDefault != null ? dr.minStaffDefault : rules.minStaffDefault}">
               </div>
               <div class="field-row">
-                <label>최대 연속 근무일수</label>
+                <label>최대 연속 근무일수${ruleBadge('required')}</label>
                 <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="maxConsecutiveWorkDays" min="1" value="${dr.maxConsecutiveWorkDays != null ? dr.maxConsecutiveWorkDays : rules.maxConsecutiveWorkDays}">
               </div>
               <div class="field-row">
-                <label>오전조 최소 인원(=최대 인원)</label>
+                <label>오전조 최소 인원(=최대 인원)${ruleBadge('recommended')}</label>
                 <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="minMorningStaff" min="0" value="${dr.minMorningStaff != null ? dr.minMorningStaff : (rules.minMorningStaff || 0)}">
               </div>
               <div class="field-row">
-                <label>오후조 최소 인원</label>
+                <label>오후조 최소 인원${ruleBadge('recommended')}</label>
                 <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="minAfternoonStaff" min="0" value="${dr.minAfternoonStaff != null ? dr.minAfternoonStaff : (rules.minAfternoonStaff || 0)}">
               </div>
             </div>
@@ -501,11 +509,12 @@ Hyumu.Render = (function () {
           }).join('')}
         </div>
         <div class="field-row">
-          <label><input type="checkbox" id="rule-week-rest" ${rules.minRestPerWeekWindow ? 'checked' : ''}> 매 7일마다 최소 1일 휴무 보장</label>
+          <label><input type="checkbox" id="rule-week-rest" ${rules.minRestPerWeekWindow ? 'checked' : ''}> 매 7일마다 최소 1일 휴무 보장${ruleBadge('required')}</label>
         </div>
         <div class="field-row">
-          <label><input type="checkbox" id="rule-avoid-alternating" ${rules.avoidAlternatingShift ? 'checked' : ''}> 퐁당퐁당 금지 (전후전후처럼 매일 근무조 바뀌지 않게 같은 조로 몰아주기)</label>
+          <label><input type="checkbox" id="rule-avoid-alternating" ${rules.avoidAlternatingShift ? 'checked' : ''}> 퐁당퐁당 방지 (전후전후처럼 매일 근무조 바뀌지 않게 같은 조로 몰아주기)${ruleBadge('recommended')}</label>
         </div>
+        <p class="hint">체크하면 최우선으로 같은 조로 몰아주려 하지만, 다른 필수 조건과 겹치면 양보될 수 있어요.</p>
         <p class="hint">최대 근무 인원도 문구와 서적이 서로 별도예요. 비워두면 제한 없음.</p>
         <div class="dept-rules-row">
           ${['문구', '서적'].map((dept) => {
@@ -514,7 +523,7 @@ Hyumu.Render = (function () {
             <div class="dept-rules-col">
               <h3>${dept}</h3>
               <div class="field-row">
-                <label>최대 근무 인원</label>
+                <label>최대 근무 인원${ruleBadge('recommended')}</label>
                 <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="maxStaffDefault" min="0" value="${dr.maxStaffDefault != null ? dr.maxStaffDefault : ''}" placeholder="제한 없음">
               </div>
             </div>
@@ -523,7 +532,7 @@ Hyumu.Render = (function () {
         </div>
 
         <details class="rule-details">
-          <summary>요일별 최소 근무 인원 예외 (선택)</summary>
+          <summary>요일별 최소 근무 인원 예외 (선택)${ruleBadge('recommended')}</summary>
           <div class="weekday-overrides">
             ${Model.WEEKDAY_LABELS.map((label, wd) => `
               <label class="weekday-override">
@@ -537,7 +546,7 @@ Hyumu.Render = (function () {
         </details>
 
         <details class="rule-details">
-          <summary>코너별 오전/오후 최소 근무 인원 (선택)</summary>
+          <summary>코너별 오전/오후 최소 근무 인원 (선택)${ruleBadge('recommended')}</summary>
           <div class="corner-shift-overrides">
             ${Object.entries(Model.CORNER_GROUPS).flatMap(([group, corners]) => corners).map((corner) => {
               const cornerRule = (rules.minStaffByCorner && rules.minStaffByCorner[corner]) || {};
@@ -573,7 +582,7 @@ Hyumu.Render = (function () {
         </details>
 
         <details class="rule-details">
-          <summary>특정 날짜 최소 근무 인원 예외 (선택)</summary>
+          <summary>특정 날짜 최소 근무 인원 예외 (선택)${ruleBadge('recommended')}</summary>
           <div class="date-override-add">
             <input type="date" id="rule-date-input">
             <input type="number" min="0" id="rule-date-value" placeholder="최소 인원">
