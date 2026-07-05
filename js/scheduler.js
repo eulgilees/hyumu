@@ -939,10 +939,14 @@ Hyumu.Scheduler = (function () {
   function assignShifts(schedule, employees, dates, rules, conflicts) {
     const minMorning = rules.minMorningStaff || 0;
     const minAfternoon = rules.minAfternoonStaff || 0;
+    const deptRules = rules.deptRules || {};
+    const hasDeptShiftReq = Object.values(deptRules).some((dr) =>
+      (dr.minMorningStaff || 0) > 0 || (dr.minAfternoonStaff || 0) > 0 || dr.maxMorningStaff != null
+    );
     const cornerShiftMin = rules.minStaffByCorner || {};
     const hasCornerShiftReq = Object.values(cornerShiftMin).some((req) => (req.morning || 0) > 0 || (req.afternoon || 0) > 0);
     const hasEdgePreference = employees.some((e) => e.edgeShiftPreference);
-    if (minMorning === 0 && minAfternoon === 0 && !hasCornerShiftReq && !hasEdgePreference && !rules.avoidAlternatingShift && !employees.some((e) => e.shiftPreference !== 'ANY')) {
+    if (minMorning === 0 && minAfternoon === 0 && !hasDeptShiftReq && !hasCornerShiftReq && !hasEdgePreference && !rules.avoidAlternatingShift && !employees.some((e) => e.shiftPreference !== 'ANY')) {
       return;
     }
 
@@ -1040,52 +1044,92 @@ Hyumu.Scheduler = (function () {
         lockedAfternoon.push(...pickA);
       });
 
-      const needMorning = Math.max(0, minMorning - lockedMorning.length);
-      const needAfternoon = Math.max(0, minAfternoon - lockedAfternoon.length);
+      // 오전/오후 최소·최대 인원은 부서(문구/서적)마다 따로 설정할 수 있다 — 문구는 최소=최대로
+      // 묶여 있어도 서적은 최소보다 여유 있게 최대치를 더 둘 수 있다(사장님 지시: "문구는
+      // 최소와 최대가 같지만 서적은 다를 수 있거든"). 별도 설정이 있는 부서만 자기 인원끼리
+      // 따로 채우고, 설정이 없는 나머지(부서 미지정 관리 포함)는 예전처럼 매장 공통 기본값
+      // 하나를 다같이 나눠 채운다 — 그렇지 않으면 매장 공통값이 부서마다 중복 적용돼 버린다.
+      const overriddenDepts = Object.keys(deptRules).filter((d) => {
+        const dr = deptRules[d];
+        return dr && (dr.minMorningStaff != null || dr.minAfternoonStaff != null || dr.maxMorningStaff != null);
+      });
+      const shiftGroups = overriddenDepts.map((dept) => {
+        const dr = deptRules[dept];
+        const groupMinMorning = dr.minMorningStaff != null ? dr.minMorningStaff : 0;
+        const groupMaxMorning = dr.maxMorningStaff != null ? dr.maxMorningStaff : (groupMinMorning > 0 ? groupMinMorning : Infinity);
+        return {
+          label: dept,
+          minMorning: groupMinMorning,
+          minAfternoon: dr.minAfternoonStaff != null ? dr.minAfternoonStaff : 0,
+          maxMorning: groupMaxMorning,
+          members: (e) => Model.employeeDepartment(e) === dept
+        };
+      });
+      shiftGroups.push({
+        label: null,
+        minMorning,
+        minAfternoon,
+        maxMorning: minMorning > 0 ? minMorning : Infinity,
+        members: (e) => !overriddenDepts.includes(Model.employeeDepartment(e))
+      });
 
-      if (needMorning + needAfternoon > flexible.length) {
-        conflicts.push({
-          date,
-          type: 'SHIFT_MIN_VIOLATION',
-          message: `${date}: 오전/오후 최소 인원(오전 ${minMorning}명, 오후 ${minAfternoon}명)을 모두 채울 인원이 부족합니다.`,
-          employeeIds: workingToday.map((e) => e.id)
-        });
-      }
+      const chosenMorning = [];
+      const chosenAfternoon = [];
 
-      flexible.sort(byMorningPreferenceThenNeed);
-      const chosenMorning = flexible.slice(0, needMorning);
-      const chosenMorningIds = new Set(chosenMorning.map((e) => e.id));
-      const afterMorningPick = flexible.filter((e) => !chosenMorningIds.has(e.id));
+      shiftGroups.forEach((group) => {
+        const groupFlexible = flexible.filter(group.members);
+        const groupLockedMorning = lockedMorning.filter(group.members).length;
+        const groupLockedAfternoon = lockedAfternoon.filter(group.members).length;
 
-      afterMorningPick.sort(byAfternoonPreferenceThenNeed);
-      const chosenAfternoon = afterMorningPick.slice(0, needAfternoon);
-      const chosenAfternoonIds = new Set(chosenAfternoon.map((e) => e.id));
-      const leftover = afterMorningPick.filter((e) => !chosenAfternoonIds.has(e.id));
+        const needMorning = Math.max(0, group.minMorning - groupLockedMorning);
+        const needAfternoon = Math.max(0, group.minAfternoon - groupLockedAfternoon);
 
-      let dayMorningCount = lockedMorning.length + chosenMorning.length;
-      let dayAfternoonCount = lockedAfternoon.length + chosenAfternoon.length;
-
-      // 오전조는 최소 인원이 곧 최대 인원이므로(위 needMorning만큼만 채움), 이미 오전 최소를
-      // 채운 뒤 남는 사람은 선호도와 무관하게 전부 오후로 보낸다. minMorning이 설정되지
-      // 않은 경우(0)에는 이 제약이 없으므로 기존처럼 선호/균형 기준으로 배정한다.
-      leftover.sort(byMorningNeedAsc);
-      for (const e of leftover) {
-        let assignMorning;
-        if (minMorning > 0) {
-          assignMorning = false;
-        } else {
-          const pref = shiftBias(e, date, dates, schedule, rules);
-          const diff = morningCount[e.id] - afternoonCount[e.id];
-          assignMorning = pref !== 0 ? pref < 0 : (diff < 0 || (diff === 0 && dayMorningCount <= dayAfternoonCount));
+        if (needMorning + needAfternoon > groupFlexible.length) {
+          conflicts.push({
+            date,
+            type: 'SHIFT_MIN_VIOLATION',
+            message: `${date}: ${group.label ? group.label + ' ' : ''}오전/오후 최소 인원(오전 ${group.minMorning}명, 오후 ${group.minAfternoon}명)을 모두 채울 인원이 부족합니다.`,
+            employeeIds: groupFlexible.map((e) => e.id)
+          });
         }
-        if (assignMorning) {
-          chosenMorning.push(e);
-          dayMorningCount++;
-        } else {
-          chosenAfternoon.push(e);
-          dayAfternoonCount++;
+
+        groupFlexible.sort(byMorningPreferenceThenNeed);
+        const pickMorning = groupFlexible.slice(0, needMorning);
+        const pickMorningIds = new Set(pickMorning.map((e) => e.id));
+        const afterMorningPick = groupFlexible.filter((e) => !pickMorningIds.has(e.id));
+
+        afterMorningPick.sort(byAfternoonPreferenceThenNeed);
+        const pickAfternoon = afterMorningPick.slice(0, needAfternoon);
+        const pickAfternoonIds = new Set(pickAfternoon.map((e) => e.id));
+        const groupLeftover = afterMorningPick.filter((e) => !pickAfternoonIds.has(e.id));
+
+        let groupMorningCount = groupLockedMorning + pickMorning.length;
+        let groupAfternoonCount = groupLockedAfternoon + pickAfternoon.length;
+
+        // 오전 최대 인원(설정 없으면 최소=최대)에 닿으면 남는 사람은 선호도와 무관하게 오후로
+        // 보낸다. 최소도 최대도 없는 그룹은 기존처럼 선호/균형 기준으로 자유롭게 배정한다.
+        groupLeftover.sort(byMorningNeedAsc);
+        for (const e of groupLeftover) {
+          let assignMorning;
+          if (groupMorningCount >= group.maxMorning) {
+            assignMorning = false;
+          } else {
+            const pref = shiftBias(e, date, dates, schedule, rules);
+            const diff = morningCount[e.id] - afternoonCount[e.id];
+            assignMorning = pref !== 0 ? pref < 0 : (diff < 0 || (diff === 0 && groupMorningCount <= groupAfternoonCount));
+          }
+          if (assignMorning) {
+            pickMorning.push(e);
+            groupMorningCount++;
+          } else {
+            pickAfternoon.push(e);
+            groupAfternoonCount++;
+          }
         }
-      }
+
+        chosenMorning.push(...pickMorning);
+        chosenAfternoon.push(...pickAfternoon);
+      });
 
       [...lockedMorning, ...chosenMorning].forEach((e) => {
         schedule[e.id][date].shift = 'MORNING';
