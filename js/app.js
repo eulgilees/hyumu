@@ -48,6 +48,38 @@ Hyumu.App = (function () {
     return await Storage.loadMonth(state.store, year, month);
   }
 
+  // 이미 만들어져 있는 미래 달 문서는 새 직원이 생겨도 자동으로 반영되지 않는다(각 달 문서는
+  // 처음 만들어질 때 딱 한 번만 그 시점의 직원 목록을 복사해오기 때문) — 이번 달에서 직원을
+  // 추가하면, 이미 존재하는 이후 달 문서들에도 같은 직원을 곧바로 끼워 넣어 계속 손으로
+  // 맞춰줄 필요가 없게 한다(사장님 지시: "자동으로 반영되게 해줘").
+  async function propagateNewEmployeeToFutureMonths(newEmp, id) {
+    const key = Model.monthKey(doc.month.year, doc.month.month);
+    const index = await Storage.loadIndex(state.store);
+    const futureKeys = index.filter((e) => e.key > key).map((e) => e.key);
+    const idNum = Number(id.replace('emp', '')) || 0;
+    for (const fk of futureKeys) {
+      const [fy, fm] = fk.split('-').map(Number);
+      const futureDoc = await Storage.loadMonth(state.store, fy, fm);
+      if (!futureDoc || futureDoc.employees.some((e) => e.id === id)) continue;
+      futureDoc.employees.push({
+        id,
+        name: newEmp.name,
+        recurringOff: [...newEmp.recurringOff],
+        specificOff: [],
+        specificOffTypes: {},
+        shiftPreference: newEmp.shiftPreference,
+        edgeShiftPreference: newEmp.edgeShiftPreference,
+        corner: newEmp.corner,
+        corners: [...newEmp.corners]
+      });
+      if (!futureDoc.meta || futureDoc.meta.nextEmployeeId <= idNum) {
+        futureDoc.meta = futureDoc.meta || {};
+        futureDoc.meta.nextEmployeeId = idNum + 1;
+      }
+      await Storage.saveMonth(state.store, futureDoc);
+    }
+  }
+
   const authHandlers = {
     onGotoSignup() {
       authScreen = 'signup';
@@ -158,8 +190,10 @@ Hyumu.App = (function () {
     },
     async onAddEmployee() {
       const id = `emp${doc.meta.nextEmployeeId++}`;
-      doc.employees.unshift(Model.createEmployee(id, `직원${doc.employees.length + 1}`));
+      const newEmp = Model.createEmployee(id, `직원${doc.employees.length + 1}`);
+      doc.employees.unshift(newEmp);
       await save();
+      await propagateNewEmployeeToFutureMonths(newEmp, id);
       renderContent();
     },
     async onRemoveEmployee(id) {
