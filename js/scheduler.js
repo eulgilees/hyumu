@@ -183,20 +183,16 @@ Hyumu.Scheduler = (function () {
     // pulling in a 파트장 as floating coverage (사장님 지시).
     backfillCornerShortfalls(schedule, employees, dates, cornerMinStaffGlobal, personalCapByEmpId, conflicts);
 
-    // Final safety net: multiple passes above (rebalance, trim, backfill) each individually check
-    // the consecutive-work cap before converting a rest day back to WORK, but a bug in any one of
-    // them can still slip a violation through — and this is a hard, non-negotiable limit (사장님
-    // 지시: "연속근무제한이 왜 문제라는거니 ... 무조건 휴무가 먼저", confirmed on real data: a
-    // 6-day streak had slipped through here before this pass existed). So re-verify every
-    // employee's actual final schedule directly and force a rest day back in wherever a streak
-    // still exceeds their cap, no matter which pass caused it.
-    enforceConsecutiveCap(schedule, employees, dates, personalCapByEmpId, conflicts);
-
     // 목표 휴무일수는 필수 조건이라 무조건 맞춰야 한다(사장님 지시: "필수는 무조건이라 억지로
     // 라도 끼워맞춰야해") — 코너 최소인원 여유가 없어서(예: 파트장이 1명뿐이라 항상 근무해야
     // 하는 경우) 위 패스들이 목표만큼 못 쉬게 했다면, 여기서 코너 하한을 깨더라도 강제로
-    // 채운다. 연속근무 상한은 건드리지 않는다(쉬는 날을 늘리는 건 상한을 어길 수 없음).
+    // 채운다.
     enforceTargetOffDays(schedule, employees, dates, targetByEmpId, cornerMinStaffGlobal, personalCapByEmpId, conflicts);
+
+    // 마지막으로, 목표 휴무일수 예산 안에서도 도저히 상한을 지킬 수 없었던 연속근무 구간을
+    // 찾아 오류로 표시한다(사장님 지시: "강제휴무란 있을 수 없어... 길게 근무하는 경우 오류를
+    // 뜨게 해줘야해") — 스케줄을 억지로 고치지 않고 있는 그대로 보고만 한다.
+    detectConsecutiveCapViolations(schedule, employees, dates, personalCapByEmpId, conflicts);
 
     assignShifts(schedule, employees, dates, rules, conflicts);
 
@@ -391,20 +387,13 @@ Hyumu.Scheduler = (function () {
       // people available than the minimum) should absorb extra rest rather than overstaffing.
       const allowedAdditionalOff = Math.max(0, n - req - fixedOffCount);
 
-      const forcedOff = freeEmployees.filter((emp) => consecutiveWork[emp.id] >= personalCap[emp.id]);
-      const forcedIds = new Set(forcedOff.map((e) => e.id));
-
-      if (forcedOff.length > allowedAdditionalOff) {
-        conflicts.push({
-          date,
-          type: 'MIN_STAFF_VIOLATION',
-          message: `${date}: 연속 근무 제한(${effectiveCap}일)으로 쉬어야 하는 인원이 많아 최소 근무 인원(${req}명)을 유지할 수 없습니다.`,
-          employeeIds: forcedOff.map((e) => e.id)
-        });
-      }
-
-      forcedOff.forEach((emp) => setCell(schedule, emp.id, date, 'OFF', 'AUTO_FORCED'));
-
+      // 강제휴무란 있을 수 없다(사장님 지시: "강제휴무란 있을 수 없어... 그럴 경우에는 최적으로
+      // 나머지 휴무를 분배하고 길게 근무하는 경우 오류를 뜨게 해줘야해") — 연속근무 상한에
+      // 닿은 사람을 이 날 무조건 쉬게 만들지 않는다. 대신 아래 candidates 정렬에서 연속근무일수가
+      // 가장 긴 사람을 최우선으로 오늘의 재량휴무 후보로 올려서, 목표 휴무일수 예산 안에서
+      // 최대한 상한을 지키도록 자연스럽게 유도한다. 그래도 예산이 부족해 상한을 넘기게 되는
+      // 경우는 뒤의 enforceConsecutiveCap이 오류로 표시한다(억지로 쉬게 만들지 않음).
+      //
       // Pace today's rest slots against the target trajectory (how much of totalTargetSum
       // "should" be used up by this point in the month). Normally capped by the day's own
       // staffing room (allowedAdditionalOff) so a fully-staffed day doesn't get overstaffed
@@ -412,13 +401,13 @@ Hyumu.Scheduler = (function () {
       // that this creates gets caught up later by rebalanceDecoupled's escalated passes,
       // which are the ones allowed to actually dip below minimum staffing when unavoidable.
       const desiredCumulative = Math.round((totalTargetSum * (dayIndex + 1)) / dates.length);
-      const paceSlots = Math.max(0, desiredCumulative - totalOffSoFar - forcedOff.length);
-      const reqRoom = Math.max(0, allowedAdditionalOff - forcedOff.length);
+      const paceSlots = Math.max(0, desiredCumulative - totalOffSoFar);
+      const reqRoom = allowedAdditionalOff;
       // 최대 근무 인원(선택): 설정돼 있으면 오늘 근무 인원이 그 값을 넘지 않도록 최소 이만큼은
       // 무조건 쉬게 한다 — 목표 페이스/최소인원 여유와 무관하게 이 하한은 항상 지켜야 한다.
       const maxStaffAllowed = rules.maxStaffDefault;
       const requiredOffForMaxStaff = maxStaffAllowed != null
-        ? Math.max(0, n - maxStaffAllowed - fixedOffCount - forcedOff.length)
+        ? Math.max(0, n - maxStaffAllowed - fixedOffCount)
         : 0;
       if (maxStaffAllowed != null && maxStaffAllowed < req) {
         conflicts.push({
@@ -428,8 +417,21 @@ Hyumu.Scheduler = (function () {
           employeeIds: []
         });
       }
-      const remainingSlots = Math.max(Math.min(paceSlots, reqRoom), requiredOffForMaxStaff);
-      const candidates = freeEmployees.filter((emp) => !forcedIds.has(emp.id));
+      // 목표 페이스(paceSlots)는 한 달 전체에 걸쳐 고르게 퍼뜨리려는 값이라, 월초처럼 다 같이
+      // 근무를 시작해서 여러 명이 동시에 상한에 닿는 날엔 너무 작을 수 있다 — 오늘 상한에 닿는
+      // 인원(criticalCount)은 그 페이스보다 우선해서 반드시 슬롯을 확보해준다. 그래도 실제
+      // 근무 가능 인원(reqRoom)이 부족하면 그건 진짜 물리적 한계라 오류로 남긴다.
+      const criticalCount = freeEmployees.filter((emp) => consecutiveWork[emp.id] >= personalCap[emp.id]).length;
+      if (criticalCount > reqRoom) {
+        conflicts.push({
+          date,
+          type: 'MIN_STAFF_VIOLATION',
+          message: `${date}: 연속 근무 상한에 닿은 인원(${criticalCount}명)이 오늘 쉴 수 있는 여유 인원(${reqRoom}명)보다 많아 일부는 상한을 넘겨 근무하게 됩니다.`,
+          employeeIds: freeEmployees.filter((emp) => consecutiveWork[emp.id] >= personalCap[emp.id]).map((e) => e.id)
+        });
+      }
+      const remainingSlots = Math.max(Math.min(paceSlots, reqRoom), requiredOffForMaxStaff, Math.min(criticalCount, reqRoom));
+      const candidates = freeEmployees;
 
       // Per-corner OFF budget: same principle as the store-wide staffing room above — respect
       // each corner's own morning+afternoon minimum first when picking who rests today, and only
@@ -584,37 +586,33 @@ Hyumu.Scheduler = (function () {
   // minimum staffing (a MIN_STAFF_VIOLATION was recorded for that dept's own people), pull in
   // an available 파트장 (currently resting, not BASE/MANUAL locked) to cover the gap. This runs
   // after every department/관리 group has already been scheduled independently.
-  // Scans each employee's FINAL schedule (after every rebalance/backfill pass has run) and forces
-  // a rest day back in wherever their actual consecutive-WORK streak still exceeds their own
-  // personalCap — a last-resort safety net, not the primary enforcement mechanism (Phase 1's
-  // forcedOff and every rebalance pass's cap checks are), for whichever pass might still slip a
-  // violation through despite each individually checking. The offending day (the one that first
-  // pushes the streak past the cap) is converted to AUTO_FORCED OFF, unless it's BASE/MANUAL
-  // locked — a locked day can't be un-locked, so that genuinely unavoidable case is only flagged.
-  function enforceConsecutiveCap(schedule, employees, dates, personalCapByEmpId, conflicts) {
+
+  // 강제휴무란 있을 수 없다(사장님 지시) — 연속근무 상한에 닿아도 스케줄러가 억지로 쉬게
+  // 만들지 않는다. 대신 목표 휴무일수 예산(Phase 1의 우선순위 배정 + enforceTargetOffDays)만으로
+  // 상한을 지킬 수 없었던 경우를 여기서 최종적으로 찾아내 오류로 표시한다 — 스케줄 자체는
+  // 손대지 않고, 실제로 상한을 넘긴 연속근무 구간을 있는 그대로 보고한다.
+  function detectConsecutiveCapViolations(schedule, employees, dates, personalCapByEmpId, conflicts) {
     employees.forEach((emp) => {
       const cap = personalCapByEmpId[emp.id];
       if (cap == null) return;
       let streak = 0;
+      let streakStart = null;
       for (const date of dates) {
         const cell = schedule[emp.id][date];
         if (cell && cell.status === 'WORK') {
+          if (streak === 0) streakStart = date;
           streak++;
-          if (streak > cap) {
-            if (cell.source === 'BASE' || cell.source === 'MANUAL') {
-              conflicts.push({
-                date,
-                type: 'MIN_STAFF_VIOLATION',
-                message: `${date}: ${emp.name}님이 연속 근무 제한(${cap}일)을 넘겼지만 고정/수동 근무라 조정할 수 없습니다.`,
-                employeeIds: [emp.id]
-              });
-              continue;
-            }
-            setCell(schedule, emp.id, date, 'OFF', 'AUTO_FORCED');
-            streak = 0;
+          if (streak === cap + 1) {
+            conflicts.push({
+              date,
+              type: 'MIN_STAFF_VIOLATION',
+              message: `${date}: ${emp.name}님이 ${streakStart}부터 연속 근무 중이며 상한(${cap}일)을 넘겼습니다. 목표 휴무일수 예산만으로는 이 상한을 지킬 수 없는 경우입니다.`,
+              employeeIds: [emp.id]
+            });
           }
         } else {
           streak = 0;
+          streakStart = null;
         }
       }
     });
@@ -682,25 +680,18 @@ Hyumu.Scheduler = (function () {
       }
 
       // 목표보다 더 쉬고 있으면(다른 패스가 남는 여유를 보너스 휴무로 써버린 경우), 그 초과분을
-      // 근무로 되돌려 정확히 목표에 맞춘다. 확정 휴무(BASE/MANUAL)나 상한 때문에 강제로 쉬는 날
-      // (AUTO_FORCED)은 절대 건드리지 않고, 재량 휴무(AUTO_FAIRNESS)만 대상으로 한다.
+      // 근무로 되돌려 정확히 목표에 맞춘다. 확정 휴무(BASE/MANUAL)는 절대 건드리지 않고, 재량
+      // 휴무(AUTO_FAIRNESS)만 대상으로 한다. 상한을 안 넘기는 날부터 우선 고르되, 그래도 상한을
+      // 넘기게 되면 그냥 넘긴다 — 결과는 뒤의 detectConsecutiveCapViolations가 오류로 잡아낸다
+      // (사장님 지시: "강제휴무란 있을 수 없어... 길게 근무하는 경우 오류를 뜨게 해줘야해").
       let surplus = -deficit;
       const surplusCandidates = dates.filter((d) => schedule[emp.id][d].status === 'OFF' && schedule[emp.id][d].source === 'AUTO_FAIRNESS');
       surplusCandidates.sort((a, b) => (wouldSwapBreakCap(emp, a, a, dates, schedule, personalCap) ? 1 : 0) - (wouldSwapBreakCap(emp, b, b, dates, schedule, personalCap) ? 1 : 0));
 
       for (const d of surplusCandidates) {
         if (surplus <= 0) break;
-        const willBreakCap = wouldSwapBreakCap(emp, d, d, dates, schedule, personalCap);
         setCell(schedule, emp.id, d, 'WORK', 'AUTO');
         surplus--;
-        if (willBreakCap) {
-          conflicts.push({
-            date: d,
-            type: 'MIN_STAFF_VIOLATION',
-            message: `${d}: ${emp.name}님의 목표 휴무일수를 정확히 맞추기 위해 휴무를 근무로 바꿨는데, 연속 근무 제한을 넘기게 됩니다.`,
-            employeeIds: [emp.id]
-          });
-        }
       }
 
       if (surplus > 0) {
