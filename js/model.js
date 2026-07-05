@@ -131,6 +131,16 @@ Hyumu.Model = (function () {
     return (emp.specificOffTypes && emp.specificOffTypes[dateStr]) || 'PERSONAL';
   }
 
+  // 공휴일 근무 시 수당/대체휴일 선택은 실제로 그날 근무가 확정되기 전에도 미리 골라둘 수
+  // 있도록 직원 정보(emp.holidayChoices)에 저장한다(사장님 지시: "본인이 빨간날에 근무할지
+  // 안 할지는 아무도 모르니까 일단 설정은 모두에게 뜨게"). 이 기능이 생기기 전 예전 데이터는
+  // schedule 셀의 holidayChoice에 남아 있을 수 있어 그것도 폴백으로 봐준다.
+  function holidayChoiceOf(emp, empSchedule, dateStr) {
+    if (emp.holidayChoices && emp.holidayChoices[dateStr] != null) return emp.holidayChoices[dateStr];
+    const cell = empSchedule && empSchedule[dateStr];
+    return (cell && cell.holidayChoice) || '';
+  }
+
   function employeeCorners(emp) {
     if (emp.corners && emp.corners.length) return emp.corners;
     if (emp.corner) return [emp.corner];
@@ -224,6 +234,7 @@ Hyumu.Model = (function () {
     employeeDepartment,
     LEAVE_TYPES,
     leaveTypeOf,
+    holidayChoiceOf,
     pad2,
     daysInMonth,
     dateISO,

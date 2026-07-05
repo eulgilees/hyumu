@@ -75,7 +75,7 @@ Hyumu.Scheduler = (function () {
       if (empSchedule) {
         dates.forEach((d) => {
           const cell = empSchedule[d];
-          if (cell && cell.status === 'WORK' && cell.holidayChoice === 'SUBSTITUTE' && Model.holidayName(d)) count++;
+          if (cell && cell.status === 'WORK' && Model.holidayName(d) && Model.holidayChoiceOf(emp, empSchedule, d) === 'SUBSTITUTE') count++;
         });
       }
       bonus[emp.id] = count;
@@ -88,7 +88,6 @@ Hyumu.Scheduler = (function () {
     const dates = Model.allDatesOfMonth(month.year, month.month);
     const carryStreakByEmpId = computeCarryStreak(previousMonthDoc);
     const substituteBonusByEmpId = computeSubstituteBonus(doc.schedule, employees, dates);
-    const oldScheduleForHolidayChoices = doc.schedule;
 
     const schedule = {};
     employees.forEach((emp) => {
@@ -236,23 +235,6 @@ Hyumu.Scheduler = (function () {
     detectConsecutiveCapViolations(schedule, employees, dates, personalCapByEmpId, conflicts);
 
     assignShifts(schedule, employees, dates, rules, conflicts);
-
-    // 이미 골라둔 수당/대체휴일 선택은 재계산해도 유지한다 — 단, 그날 그 사람이 더 이상
-    // 근무가 아니게 바뀌었으면(재조정으로 다른 사람이 그 공휴일에 들어감) 의미가 없어지니
-    // 지운다.
-    if (oldScheduleForHolidayChoices) {
-      employees.forEach((emp) => {
-        const oldEmpSchedule = oldScheduleForHolidayChoices[emp.id];
-        if (!oldEmpSchedule) return;
-        dates.forEach((d) => {
-          const oldCell = oldEmpSchedule[d];
-          const newCell = schedule[emp.id][d];
-          if (oldCell && oldCell.holidayChoice && newCell && newCell.status === 'WORK' && Model.holidayName(d)) {
-            newCell.holidayChoice = oldCell.holidayChoice;
-          }
-        });
-      });
-    }
 
     doc.schedule = schedule;
     doc.conflicts = conflicts;

@@ -380,22 +380,24 @@ Hyumu.Render = (function () {
     const dates = Model.allDatesOfMonth(doc.month.year, doc.month.month);
     const rows = doc.employees.map((emp) => {
       const empSchedule = doc.schedule[emp.id] || {};
-      const holidayWorkDates = dates.filter((d) => {
-        const cell = empSchedule[d];
-        return cell && cell.status === 'WORK' && Model.holidayName(d);
-      });
-      const holidayChoiceHtml = holidayWorkDates.length > 0 ? `
+      // 그날 실제로 근무하게 될지는 스케줄을 다시 돌리기 전엔 아무도 모르니, 근무 확정 여부와
+      // 무관하게 이번 달 모든 공휴일에 대해 미리 골라둘 수 있게 한다(사장님 지시: "본인이
+      // 빨간날에 근무할지 안 할지는 아무도 모르니까 일단 설정은 모두에게 뜨게").
+      const holidayDates = dates.filter((d) => Model.holidayName(d));
+      const holidayChoiceHtml = holidayDates.length > 0 ? `
         <div class="specific-off">
-          <label class="hint">공휴일 근무 처리 (수당 또는 대체휴일)</label>
-          ${holidayWorkDates.map((d) => {
-            const choice = empSchedule[d].holidayChoice || '';
+          <label class="hint">공휴일 근무 처리 (수당 또는 대체휴일 미리 선택)</label>
+          ${holidayDates.map((d) => {
+            const choice = Model.holidayChoiceOf(emp, empSchedule, d);
+            const cell = empSchedule[d];
+            const workNote = cell && cell.status === 'WORK' ? ' · 근무 예정' : cell && cell.status === 'OFF' ? ' · 휴무 예정' : '';
             return `
             <div class="holiday-choice-row">
-              <span>${d} (${esc(Model.holidayName(d))})</span>
+              <span>${d} (${esc(Model.holidayName(d))}${workNote})</span>
               <select class="emp-holiday-choice" data-id="${emp.id}" data-date="${d}">
                 <option value="" ${choice === '' ? 'selected' : ''}>미정</option>
                 <option value="PAY" ${choice === 'PAY' ? 'selected' : ''}>수당</option>
-                <option value="SUBSTITUTE" ${choice === 'SUBSTITUTE' ? 'selected' : ''}>대체휴일 (+1 목표휴무일)</option>
+                <option value="SUBSTITUTE" ${choice === 'SUBSTITUTE' ? 'selected' : ''}>대체휴일 (근무 시 +1 목표휴무일)</option>
               </select>
             </div>
           `;
@@ -844,8 +846,9 @@ Hyumu.Render = (function () {
         // 공휴일 근무 처리(수당/대체휴일)는 직원 설정 화면에서만 바꾼다(사장님 지시: "캘린더에서
         // 바꾸면 안되고 직원관리에서 바꿔야해") — 여기서는 상태만 참고용으로 보여준다.
         const isHolidayWork = cell.status === 'WORK' && !!Model.holidayName(d);
+        const holidayChoiceVal = isHolidayWork ? Model.holidayChoiceOf(emp, empSchedule, d) : '';
         const holidayBadge = isHolidayWork
-          ? `<span class="holiday-choice-badge${cell.holidayChoice ? ' set' : ''}" title="공휴일 근무: ${cell.holidayChoice === 'SUBSTITUTE' ? '대체휴일' : cell.holidayChoice === 'PAY' ? '수당' : '미정 (직원 설정에서 지정)'}">${cell.holidayChoice === 'SUBSTITUTE' ? '대' : cell.holidayChoice === 'PAY' ? '수' : '?'}</span>`
+          ? `<span class="holiday-choice-badge${holidayChoiceVal ? ' set' : ''}" title="공휴일 근무: ${holidayChoiceVal === 'SUBSTITUTE' ? '대체휴일' : holidayChoiceVal === 'PAY' ? '수당' : '미정 (직원 설정에서 지정)'}">${holidayChoiceVal === 'SUBSTITUTE' ? '대' : holidayChoiceVal === 'PAY' ? '수' : '?'}</span>`
           : '';
         const halfDayBadge = cell.halfDayLeave
           ? `<span class="halfday-badge" title="${cell.halfDayLeave === 'MORNING' ? '오전반차' : '오후반차'}">반</span>`

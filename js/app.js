@@ -182,9 +182,11 @@ Hyumu.App = (function () {
 
   const employeeHandlers = {
     async onSetHolidayChoice(empId, date, choice) {
-      const cell = doc.schedule[empId] && doc.schedule[empId][date];
-      if (!cell) return;
-      cell.holidayChoice = choice;
+      const emp = doc.employees.find((e) => e.id === empId);
+      if (!emp) return;
+      if (!emp.holidayChoices) emp.holidayChoices = {};
+      if (choice) emp.holidayChoices[date] = choice;
+      else delete emp.holidayChoices[date];
       await save();
       renderContent();
     },
