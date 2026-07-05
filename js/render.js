@@ -106,10 +106,12 @@ Hyumu.Render = (function () {
     let rangeMode = false;
     let rangeStart = null;
     // 여러 날짜를 한 번에 고르고 싶을 때(onMultiSelect가 있을 때), 위에서 휴무 종류(연차/체단/
-    // 인정/오전반차/오후반차/개인휴무) 버튼을 먼저 고르고, 달력 날짜는 누를 때마다
-    // 휴무(위에서 고른 종류) → 오전 → 오후 → (선택 해제) 순으로 돌아간다. 완료 버튼을 눌러야
-    // 한꺼번에 반영된다 (사장님 지시: "한 번누르면 휴무 - 두번누르면 오전 - 세번 누르면 오후").
-    const OFF_LIKE_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED', 'HALF_MORNING', 'HALF_AFTERNOON'];
+    // 인정/오전반차/오후반차/런런/휴무) 버튼을 먼저 고르고 달력 날짜를 누른다. "휴무"만 예전처럼
+    // 휴무 → 오전 → 오후 → (선택 해제) 순으로 더 돌릴 수 있고(사장님 지시: "한 번누르면 휴무
+    // 두번누르면 오전 세번 누르면 오후"), 나머지(연차/체단/인정/오전반차/오후반차/런런)는 런런처럼
+    // 한 번 누르면 그 항목으로 설정, 두 번 누르면 바로 해제되는 단순 토글이다(사장님 지시:
+    // "휴무 제외하고는 런런처럼 한 번 눌렀을 때 해당 메뉴만 설정되고 두번 눌렀을 때 해제").
+    const TOGGLE_ONLY_TYPES = ['ANNUAL', 'CHEDAN', 'RECOGNIZED', 'HALF_MORNING', 'HALF_AFTERNOON', 'RUNRUN'];
     const LEAVE_TYPE_BUTTONS = [
       { key: 'PERSONAL', label: '휴무' },
       { key: 'ANNUAL', label: '연차' },
@@ -150,7 +152,7 @@ Hyumu.Render = (function () {
         ? `<p class="cc-range-hint">${rangeStart ? `시작일 ${rangeStart} · 종료일을 선택하세요` : '시작일을 선택하세요'}</p>`
         : '';
       const multiHint = onMultiSelect && !rangeMode
-        ? '<p class="cc-range-hint">날짜를 누를 때마다 휴무(위에서 고른 종류) → 오전 → 오후 → 선택해제 순으로 바뀌어요. 다 고르면 완료를 누르세요.</p>'
+        ? '<p class="cc-range-hint">"휴무"는 날짜를 누를 때마다 휴무 → 오전 → 오후 → 선택해제 순으로 바뀌고, 나머지(연차/체단/인정/오전반차/오후반차/런런)는 한 번 누르면 설정, 두 번 누르면 해제돼요. 다 고르면 완료를 누르세요.</p>'
         : '';
       const leaveTypeButtons = onMultiSelect && !rangeMode
         ? `<div class="cc-leave-type-row">
@@ -236,13 +238,11 @@ Hyumu.Render = (function () {
           } else if (onMultiSelect) {
             const date = btn.dataset.date;
             const current = multiSelections[date];
-            // 런런(2시간 조기퇴근)은 휴무가 아니라 정상 근무일에 붙는 표시라, 오전/오후
-            // 근무 상태로 이어지지 않고 켜기/끄기 두 단계로만 순환한다.
             if (!current) {
               multiSelections[date] = selectedLeaveType;
-            } else if (current === 'RUNRUN') {
+            } else if (TOGGLE_ONLY_TYPES.includes(current)) {
               delete multiSelections[date];
-            } else if (OFF_LIKE_TYPES.includes(current)) {
+            } else if (current === 'PERSONAL') {
               multiSelections[date] = 'MORNING';
             } else if (current === 'MORNING') {
               multiSelections[date] = 'AFTERNOON';
