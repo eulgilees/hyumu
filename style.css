@@ -469,6 +469,30 @@ button {
   cursor: pointer;
 }
 
+.cc-leave-type-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.cc-leave-type-btn {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  background: #f7f7f7;
+  color: #555;
+  cursor: pointer;
+}
+
+.cc-leave-type-btn.active {
+  background: #2d5fb0;
+  border-color: #2d5fb0;
+  color: #fff;
+  font-weight: 700;
+}
+
 .cc-range-hint {
   font-size: 13px;
   color: #e0834a;

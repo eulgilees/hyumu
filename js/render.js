@@ -105,15 +105,24 @@ Hyumu.Render = (function () {
       : [today.getFullYear(), today.getMonth() + 1];
     let rangeMode = false;
     let rangeStart = null;
-    // 여러 날짜를 한 번에 고르고 싶을 때(onMultiSelect가 있을 때) 클릭할 때마다
-    // 휴무 → 오전 → 오후 → (선택 해제) 순으로 돌아가고, 완료 버튼을 눌러야 한꺼번에 반영된다
-    // (사장님 지시: "한 번 누르면 휴무 두 번 누르면 오전 세번 누르면 오후... 완료 버튼 누르면
-    // 자동 입력").
-    const MULTI_CYCLE = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED', 'HALF_MORNING', 'HALF_AFTERNOON', 'MORNING', 'AFTERNOON'];
+    // 여러 날짜를 한 번에 고르고 싶을 때(onMultiSelect가 있을 때), 위에서 휴무 종류(연차/체단/
+    // 인정/오전반차/오후반차/개인휴무) 버튼을 먼저 고르고, 달력 날짜는 누를 때마다
+    // 휴무(위에서 고른 종류) → 오전 → 오후 → (선택 해제) 순으로 돌아간다. 완료 버튼을 눌러야
+    // 한꺼번에 반영된다 (사장님 지시: "한 번누르면 휴무 - 두번누르면 오전 - 세번 누르면 오후").
+    const OFF_LIKE_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED', 'HALF_MORNING', 'HALF_AFTERNOON'];
+    const LEAVE_TYPE_BUTTONS = [
+      { key: 'PERSONAL', label: '개인휴무' },
+      { key: 'ANNUAL', label: '연차' },
+      { key: 'CHEDAN', label: '체단' },
+      { key: 'RECOGNIZED', label: '인정' },
+      { key: 'HALF_MORNING', label: '오전반차' },
+      { key: 'HALF_AFTERNOON', label: '오후반차' }
+    ];
     const MULTI_LABEL = {
       PERSONAL: '개인', ANNUAL: '연차', CHEDAN: '체단', RECOGNIZED: '인정',
       HALF_MORNING: '오전반', HALF_AFTERNOON: '오후반', MORNING: '전', AFTERNOON: '후'
     };
+    let selectedLeaveType = 'PERSONAL';
     const multiSelections = {};
 
     const popup = document.createElement('div');
@@ -140,7 +149,12 @@ Hyumu.Render = (function () {
         ? `<p class="cc-range-hint">${rangeStart ? `시작일 ${rangeStart} · 종료일을 선택하세요` : '시작일을 선택하세요'}</p>`
         : '';
       const multiHint = onMultiSelect && !rangeMode
-        ? '<p class="cc-range-hint">날짜를 누를 때마다 개인휴무 → 연차 → 체단 → 인정 → 오전반차 → 오후반차 → 오전근무 → 오후근무 → 선택해제 순으로 바뀌어요. 다 고르면 완료를 누르세요.</p>'
+        ? '<p class="cc-range-hint">날짜를 누를 때마다 휴무(위에서 고른 종류) → 오전 → 오후 → 선택해제 순으로 바뀌어요. 다 고르면 완료를 누르세요.</p>'
+        : '';
+      const leaveTypeButtons = onMultiSelect && !rangeMode
+        ? `<div class="cc-leave-type-row">
+            ${LEAVE_TYPE_BUTTONS.map((t) => `<button type="button" class="cc-leave-type-btn${selectedLeaveType === t.key ? ' active' : ''}" data-type="${t.key}">${t.label}</button>`).join('')}
+          </div>`
         : '';
       const multiSelectedCount = Object.keys(multiSelections).length;
       popup.innerHTML = `
@@ -152,6 +166,7 @@ Hyumu.Render = (function () {
         <div class="cc-weekdays">
           ${Model.WEEKDAY_LABELS.map((l) => `<span class="cc-wd">${l}</span>`).join('')}
         </div>
+        ${leaveTypeButtons}
         <div class="cc-grid">${cells.join('')}</div>
         ${onSelectRange ? `<label class="cc-range-toggle"><input type="checkbox" id="cc-range-mode" ${rangeMode ? 'checked' : ''}> 기간으로 선택 (여러 날짜 한번에)</label>` : ''}
         ${rangeHint}
@@ -199,6 +214,12 @@ Hyumu.Render = (function () {
           renderMonth();
         });
       }
+      popup.querySelectorAll('.cc-leave-type-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          selectedLeaveType = btn.dataset.type;
+          renderMonth();
+        });
+      });
       popup.querySelectorAll('.cc-day[data-date]').forEach((btn) => {
         btn.addEventListener('click', () => {
           if (rangeMode) {
@@ -214,11 +235,14 @@ Hyumu.Render = (function () {
           } else if (onMultiSelect) {
             const date = btn.dataset.date;
             const current = multiSelections[date];
-            const idx = current ? MULTI_CYCLE.indexOf(current) : -1;
-            if (idx === MULTI_CYCLE.length - 1) {
-              delete multiSelections[date];
+            if (!current) {
+              multiSelections[date] = selectedLeaveType;
+            } else if (OFF_LIKE_TYPES.includes(current)) {
+              multiSelections[date] = 'MORNING';
+            } else if (current === 'MORNING') {
+              multiSelections[date] = 'AFTERNOON';
             } else {
-              multiSelections[date] = MULTI_CYCLE[idx + 1];
+              delete multiSelections[date];
             }
             renderMonth();
           } else {
