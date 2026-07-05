@@ -421,6 +421,7 @@ Hyumu.Render = (function () {
               ${Object.entries(Model.LEAVE_TYPES).map(([key, label]) => `<option value="${key}">${label}</option>`).join('')}
             </select>
             <button type="button" class="btn-open-calendar" data-id="${emp.id}">+ 개인 휴무 날짜 추가</button>
+            ${emp.specificOff.length > 0 ? `<button type="button" class="btn-clear-specific-off" data-id="${emp.id}">전체 삭제</button>` : ''}
           </div>
           <div class="date-chips">
             ${emp.specificOff.map((d) => `<span class="chip">${d} (${esc(Model.LEAVE_TYPES[Model.leaveTypeOf(emp, d)])}) <button type="button" class="chip-remove" data-id="${emp.id}" data-date="${d}">×</button></span>`).join('')}
@@ -519,6 +520,13 @@ Hyumu.Render = (function () {
     );
     container.querySelectorAll('.chip-remove').forEach((btn) =>
       btn.addEventListener('click', () => handlers.onRemoveSpecificOff(btn.dataset.id, btn.dataset.date))
+    );
+    container.querySelectorAll('.btn-clear-specific-off').forEach((btn) =>
+      btn.addEventListener('click', () => {
+        if (confirm('이 직원의 저장된 휴무 날짜를 전부 삭제할까요? 되돌릴 수 없습니다.')) {
+          handlers.onClearSpecificOff(btn.dataset.id);
+        }
+      })
     );
     container.querySelectorAll('.emp-holiday-choice').forEach((select) =>
       select.addEventListener('change', () =>

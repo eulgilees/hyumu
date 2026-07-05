@@ -247,6 +247,16 @@ button {
   cursor: pointer;
 }
 
+.btn-clear-specific-off {
+  background: #fdecea;
+  color: #c0392b;
+  border: 1px solid #f5c6cb;
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
 .weekday-checks {
   display: flex;
   gap: 10px;

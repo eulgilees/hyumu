@@ -244,6 +244,14 @@ Hyumu.App = (function () {
       await save();
       renderContent();
     },
+    async onClearSpecificOff(id) {
+      const emp = doc.employees.find((e) => e.id === id);
+      if (!emp) return;
+      emp.specificOff = [];
+      emp.specificOffTypes = {};
+      await save();
+      renderContent();
+    },
     async onUpdateShiftPreference(id, value) {
       const emp = doc.employees.find((e) => e.id === id);
       if (!emp) return;
