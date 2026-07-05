@@ -552,9 +552,9 @@ Hyumu.Render = (function () {
         ${warn}
         <div class="field-row">
           <label>목표 휴무일수 (직원 1인당, 이번 달 기준)${ruleBadge('required')}</label>
-          <input type="number" id="rule-target-off-days" min="0" step="0.5" value="${rules.targetOffDays != null ? rules.targetOffDays : ''}" placeholder="예: 9">
+          <input type="number" id="rule-target-off-days" min="0" step="0.5" value="${rules.targetOffDays != null ? rules.targetOffDays : ''}" placeholder="비우면 이번 달 토/일 일수로 자동 계산">
         </div>
-        <p class="hint">위 값을 입력하면 아래 "기본 최소 근무 인원"이 자동으로 계산되어 반영됩니다. 아래 값을 직접 수정하면 이 자동 계산은 무시됩니다.</p>
+        <p class="hint">비워두면 이번 달 토/일 일수를 자동으로 목표 휴무일수로 씁니다. 값을 입력하면 아래 "기본 최소 근무 인원"이 자동으로 계산되어 반영됩니다. 아래 값을 직접 수정하면 이 자동 계산은 무시됩니다.</p>
         <div class="field-row">
           <label>며칠 이상 연달아 휴무 시${ruleBadge('required')}</label>
           <input type="number" id="rule-long-break-days" min="2" value="${rules.longBreakDays != null ? rules.longBreakDays : ''}" placeholder="예: 4">

@@ -301,16 +301,11 @@ Hyumu.Scheduler = (function () {
     // 역산한 값이 아니라, 사용자가 직접 정한 숫자. 최소 인원 요건은 이 목표를 채우는 데
     // 방해가 되면 안 되고(휴무가 최우선), 아래 Phase 1에서도 일일 남은 슬롯 계산을 이
     // 목표에 맞춰 페이싱하지 최소인원 여유분으로 캡을 걸지 않는다.
+    // targetOffDays를 직접 입력하지 않으면 이번 달 토/일 일수를 그대로 목표 휴무일수로 쓴다
+    // (사장님 지시: "토/일만 계산하면 되거든").
     const baseTarget = rules.targetOffDays != null && rules.targetOffDays !== ''
       ? Number(rules.targetOffDays)
-      : (() => {
-          let totalOffSlots = 0;
-          for (const date of dates) {
-            const req = Model.minStaffRequired(rules, date);
-            totalOffSlots += Math.max(0, n - req);
-          }
-          return totalOffSlots / n;
-        })();
+      : dates.filter((d) => Model.isWeekend(d)).length;
     const target = {};
     employees.forEach((emp) => {
       const substituteBonus = (substituteBonusByEmpId && substituteBonusByEmpId[emp.id]) || 0;
