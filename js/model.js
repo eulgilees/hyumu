@@ -117,7 +117,7 @@ Hyumu.Model = (function () {
   };
 
   const LEAVE_TYPES = {
-    PERSONAL: '개인휴무',
+    PERSONAL: '휴무',
     ANNUAL: '연차',
     CHEDAN: '체단',
     RECOGNIZED: '인정'

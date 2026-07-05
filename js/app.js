@@ -226,7 +226,13 @@ Hyumu.App = (function () {
       // 잠그는 specificOff가 아니라, 일하는 나머지 반쪽 근무를 확정하는 WORK 셀로 저장하고
       // halfDayLeave에 어느 쪽이 반차인지 표시만 남긴다.
       Object.entries(selections).forEach(([date, choice]) => {
-        if (FULL_OFF_TYPES.includes(choice)) {
+        if (choice === 'RUNRUN') {
+          // 런런(2시간 조기퇴근)은 휴무가 아니라 그날 근무는 그대로 두고 표시만 얹는 것이라,
+          // 기존 상태/근무조는 건드리지 않는다.
+          if (!doc.schedule[id]) doc.schedule[id] = {};
+          const existing = doc.schedule[id][date] || { status: 'WORK', source: 'AUTO' };
+          doc.schedule[id][date] = Object.assign({}, existing, { runrun: true });
+        } else if (FULL_OFF_TYPES.includes(choice)) {
           if (!emp.specificOff.includes(date)) emp.specificOff.push(date);
           emp.specificOffTypes[date] = choice;
           if (doc.schedule[id] && doc.schedule[id][date] && doc.schedule[id][date].source === 'MANUAL') {

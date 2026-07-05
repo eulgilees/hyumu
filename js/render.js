@@ -111,16 +111,17 @@ Hyumu.Render = (function () {
     // 한꺼번에 반영된다 (사장님 지시: "한 번누르면 휴무 - 두번누르면 오전 - 세번 누르면 오후").
     const OFF_LIKE_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED', 'HALF_MORNING', 'HALF_AFTERNOON'];
     const LEAVE_TYPE_BUTTONS = [
-      { key: 'PERSONAL', label: '개인휴무' },
+      { key: 'PERSONAL', label: '휴무' },
       { key: 'ANNUAL', label: '연차' },
       { key: 'CHEDAN', label: '체단' },
       { key: 'RECOGNIZED', label: '인정' },
       { key: 'HALF_MORNING', label: '오전반차' },
-      { key: 'HALF_AFTERNOON', label: '오후반차' }
+      { key: 'HALF_AFTERNOON', label: '오후반차' },
+      { key: 'RUNRUN', label: '런런 (2시간 조기퇴근)' }
     ];
     const MULTI_LABEL = {
-      PERSONAL: '개인', ANNUAL: '연차', CHEDAN: '체단', RECOGNIZED: '인정',
-      HALF_MORNING: '오전반', HALF_AFTERNOON: '오후반', MORNING: '전', AFTERNOON: '후'
+      PERSONAL: '휴', ANNUAL: '연차', CHEDAN: '체단', RECOGNIZED: '인정',
+      HALF_MORNING: '오전반', HALF_AFTERNOON: '오후반', MORNING: '전', AFTERNOON: '후', RUNRUN: '런런'
     };
     let selectedLeaveType = 'PERSONAL';
     const multiSelections = {};
@@ -235,8 +236,12 @@ Hyumu.Render = (function () {
           } else if (onMultiSelect) {
             const date = btn.dataset.date;
             const current = multiSelections[date];
+            // 런런(2시간 조기퇴근)은 휴무가 아니라 정상 근무일에 붙는 표시라, 오전/오후
+            // 근무 상태로 이어지지 않고 켜기/끄기 두 단계로만 순환한다.
             if (!current) {
               multiSelections[date] = selectedLeaveType;
+            } else if (current === 'RUNRUN') {
+              delete multiSelections[date];
             } else if (OFF_LIKE_TYPES.includes(current)) {
               multiSelections[date] = 'MORNING';
             } else if (current === 'MORNING') {
@@ -850,7 +855,10 @@ Hyumu.Render = (function () {
         const halfDayBadge = cell.halfDayLeave
           ? `<span class="halfday-badge" title="${cell.halfDayLeave === 'MORNING' ? '오전반차' : '오후반차'}">반</span>`
           : '';
-        return `<td class="cal-cell${statusClass}${weekendClass}${redClass}${confClass}${lockClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}" data-locked="${isPersonalLock ? '1' : '0'}">${text}${holidayBadge}${halfDayBadge}</td>`;
+        const runrunBadge = cell.runrun
+          ? `<span class="runrun-badge" title="런런 (2시간 조기퇴근)">런</span>`
+          : '';
+        return `<td class="cal-cell${statusClass}${weekendClass}${redClass}${confClass}${lockClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}" data-locked="${isPersonalLock ? '1' : '0'}">${text}${holidayBadge}${halfDayBadge}${runrunBadge}</td>`;
       }).join('');
       return `<tr class="cal-row" data-corners="${esc(JSON.stringify(Model.employeeCorners(emp)))}"><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td><td class="total-col">${offCount}</td></tr>`;
     }).join('');
