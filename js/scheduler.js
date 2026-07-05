@@ -196,7 +196,7 @@ Hyumu.Scheduler = (function () {
     // 라도 끼워맞춰야해") — 코너 최소인원 여유가 없어서(예: 파트장이 1명뿐이라 항상 근무해야
     // 하는 경우) 위 패스들이 목표만큼 못 쉬게 했다면, 여기서 코너 하한을 깨더라도 강제로
     // 채운다. 연속근무 상한은 건드리지 않는다(쉬는 날을 늘리는 건 상한을 어길 수 없음).
-    enforceTargetOffDays(schedule, employees, dates, targetByEmpId, cornerMinStaffGlobal, conflicts);
+    enforceTargetOffDays(schedule, employees, dates, targetByEmpId, cornerMinStaffGlobal, personalCapByEmpId, conflicts);
 
     assignShifts(schedule, employees, dates, rules, conflicts);
 
@@ -621,17 +621,16 @@ Hyumu.Scheduler = (function () {
   }
 
   // Absolute last resort for the one rule that must never lose to anything else: everyone's
-  // guaranteed target off-days count (사장님 지시: "필수는 무조건이라 억지로라도 끼워맞춰야해").
-  // Every earlier pass (Phase 1 pacing, rebalanceDecoupled, fillCornerSlack, backfillPartLeaders,
-  // backfillCornerShortfalls) respects corner staffing minimums while granting rest, which can
-  // leave someone under target when their corner has no spare capacity at all (e.g. a corner with
-  // only one member left, who the "always ≥1 working" rule requires to work every day). This pass
-  // runs after all of that and, for anyone still short, forces extra rest days regardless of
-  // corner minimums — converting a WORK day to OFF can never break the consecutive-work cap
-  // (resting only ever shortens a streak), so the one thing this can never violate is the cap.
-  // Days that would drop a corner below its own minimum are tried last and flagged, so the owner
-  // can see exactly which day and corner absorbed the trade-off.
-  function enforceTargetOffDays(schedule, employees, dates, targetByEmpId, cornerMinStaffGlobal, conflicts) {
+  // target off-days count is matched EXACTLY, not just "at least" (사장님 지시: "최우선은 목표
+  // 휴무일수야. 최우선이라고 정하고 무조건 목표 휴무일 수에 맞춰. 그 다음 틀어지는 결과는
+  // 오류에 뜨게 만들어줘"). Every earlier pass can leave someone either under target (a corner
+  // with no spare capacity at all, e.g. a corner down to one member who must always work) or over
+  // it (fillCornerSlack/rebalanceDecoupled spend leftover slack as bonus rest with no upper
+  // bound). This pass is the final word: it fills any deficit AND trims any surplus down to
+  // exactly target, breaking corner staffing minimums or even the consecutive-work cap if that's
+  // what it takes — but every time it does, it flags exactly which rule and day paid the price,
+  // so nothing breaks silently.
+  function enforceTargetOffDays(schedule, employees, dates, targetByEmpId, cornerMinStaffGlobal, personalCap, conflicts) {
     function cornerWorkingWithout(emp, date) {
       return Model.employeeCorners(emp).every((c) => {
         const need = cornerMinStaffGlobal[c];
@@ -648,32 +647,67 @@ Hyumu.Scheduler = (function () {
       dates.forEach((d) => {
         if (schedule[emp.id][d].status === 'OFF' && !isExemptLockedOff(emp, d, schedule)) offCount++;
       });
-      let deficit = Math.round(target) - offCount;
-      if (deficit <= 0) return;
+      const roundedTarget = Math.round(target);
+      let deficit = roundedTarget - offCount;
+      if (deficit === 0) return;
 
-      const candidates = dates.filter((d) => schedule[emp.id][d].status === 'WORK' && schedule[emp.id][d].source === 'AUTO');
-      candidates.sort((a, b) => (cornerWorkingWithout(emp, a) ? 0 : 1) - (cornerWorkingWithout(emp, b) ? 0 : 1));
+      if (deficit > 0) {
+        const candidates = dates.filter((d) => schedule[emp.id][d].status === 'WORK' && schedule[emp.id][d].source === 'AUTO');
+        candidates.sort((a, b) => (cornerWorkingWithout(emp, a) ? 0 : 1) - (cornerWorkingWithout(emp, b) ? 0 : 1));
 
-      for (const d of candidates) {
-        if (deficit <= 0) break;
-        const safeCornerToday = cornerWorkingWithout(emp, d);
-        setCell(schedule, emp.id, d, 'OFF', 'AUTO_FAIRNESS');
-        deficit--;
-        if (!safeCornerToday) {
+        for (const d of candidates) {
+          if (deficit <= 0) break;
+          const safeCornerToday = cornerWorkingWithout(emp, d);
+          setCell(schedule, emp.id, d, 'OFF', 'AUTO_FAIRNESS');
+          deficit--;
+          if (!safeCornerToday) {
+            conflicts.push({
+              date: d,
+              type: 'CORNER_MIN_STAFF_VIOLATION',
+              message: `${d}: ${emp.name}님의 목표 휴무일수를 맞추기 위해 근무를 휴무로 바꿨는데, 이 날 소속 코너 최소 인원이 채워지지 않습니다.`,
+              employeeIds: [emp.id]
+            });
+          }
+        }
+
+        if (deficit > 0) {
+          conflicts.push({
+            date: null,
+            type: 'IMBALANCE_NOTICE',
+            message: `${emp.name}님은 목표 휴무일수(${target}일)를 다 채우지 못했습니다 — 휴무로 바꿀 수 있는 근무일 자체가 부족합니다.`,
+            employeeIds: [emp.id]
+          });
+        }
+        return;
+      }
+
+      // 목표보다 더 쉬고 있으면(다른 패스가 남는 여유를 보너스 휴무로 써버린 경우), 그 초과분을
+      // 근무로 되돌려 정확히 목표에 맞춘다. 확정 휴무(BASE/MANUAL)나 상한 때문에 강제로 쉬는 날
+      // (AUTO_FORCED)은 절대 건드리지 않고, 재량 휴무(AUTO_FAIRNESS)만 대상으로 한다.
+      let surplus = -deficit;
+      const surplusCandidates = dates.filter((d) => schedule[emp.id][d].status === 'OFF' && schedule[emp.id][d].source === 'AUTO_FAIRNESS');
+      surplusCandidates.sort((a, b) => (wouldSwapBreakCap(emp, a, a, dates, schedule, personalCap) ? 1 : 0) - (wouldSwapBreakCap(emp, b, b, dates, schedule, personalCap) ? 1 : 0));
+
+      for (const d of surplusCandidates) {
+        if (surplus <= 0) break;
+        const willBreakCap = wouldSwapBreakCap(emp, d, d, dates, schedule, personalCap);
+        setCell(schedule, emp.id, d, 'WORK', 'AUTO');
+        surplus--;
+        if (willBreakCap) {
           conflicts.push({
             date: d,
-            type: 'CORNER_MIN_STAFF_VIOLATION',
-            message: `${d}: ${emp.name}님의 목표 휴무일수를 맞추기 위해 근무를 휴무로 바꿨는데, 이 날 소속 코너 최소 인원이 채워지지 않습니다.`,
+            type: 'MIN_STAFF_VIOLATION',
+            message: `${d}: ${emp.name}님의 목표 휴무일수를 정확히 맞추기 위해 휴무를 근무로 바꿨는데, 연속 근무 제한을 넘기게 됩니다.`,
             employeeIds: [emp.id]
           });
         }
       }
 
-      if (deficit > 0) {
+      if (surplus > 0) {
         conflicts.push({
           date: null,
           type: 'IMBALANCE_NOTICE',
-          message: `${emp.name}님은 목표 휴무일수(${target}일)를 다 채우지 못했습니다 — 휴무로 바꿀 수 있는 근무일 자체가 부족합니다.`,
+          message: `${emp.name}님은 목표 휴무일수(${target}일)보다 ${surplus}일 더 쉬고 있는데, 확정 휴무/강제 휴무라 근무로 되돌릴 수 없습니다.`,
           employeeIds: [emp.id]
         });
       }
