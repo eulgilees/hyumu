@@ -278,6 +278,25 @@ Hyumu.Scheduler = (function () {
     });
     const totalTargetSum = employees.reduce((sum, emp) => sum + target[emp.id], 0);
 
+    // cornerAllowedOff is the true hard ceiling (how many CAN rest without breaking the corner's
+    // own minimum) — a corner like 학용/필기구/디자인문구 shares the same 6 people across all
+    // three, so that ceiling is generous (up to 4 of 6 at once), and Phase 1 will happily spend
+    // all of it on a slack day, then leave everyone working on a day nobody happens to need rest.
+    // The result is lumpy day-to-day headcount even though every day is individually valid
+    // (사장님 지시: "매일 비슷한 인원이 근무하게 하는게 목적이야"). This tighter smoothing cap —
+    // roughly how many SHOULD be resting on an average day given the group's own target pace —
+    // is what Phase 1's own discretionary picks respect; the real ceiling (cornerAllowedOff)
+    // stays untouched for the later passes (backfill, target enforcement) that need the full
+    // slack available when there's a genuine shortfall or deficit to fix.
+    const cornerSmoothCap = {};
+    Object.keys(cornerAllowedOff).forEach((corner) => {
+      const members = employees.filter((e) => Model.employeeCorners(e).includes(corner));
+      if (members.length === 0) return;
+      const avgTarget = members.reduce((sum, e) => sum + (target[e.id] || 0), 0) / members.length;
+      const avgDailyOff = (avgTarget / dates.length) * members.length;
+      cornerSmoothCap[corner] = Math.min(cornerAllowedOff[corner], Math.max(1, Math.ceil(avgDailyOff) + 1));
+    });
+
     const cap = rules.maxConsecutiveWorkDays;
     const effectiveCap = rules.minRestPerWeekWindow ? Math.min(cap, 6) : cap;
 
@@ -542,7 +561,7 @@ Hyumu.Scheduler = (function () {
         // are meant to be mostly worked, only rotated rest per corner.
         if (redDay && fairnessRedDayOff[emp.id] >= Math.ceil(redDayTarget[emp.id])) continue;
         const empCorners = Model.employeeCorners(emp);
-        const blocked = empCorners.some((c) => cornerAllowedOff[c] != null && (cornerOffUsed[c] || 0) >= cornerAllowedOff[c]);
+        const blocked = empCorners.some((c) => cornerSmoothCap[c] != null && (cornerOffUsed[c] || 0) >= cornerSmoothCap[c]);
         if (blocked) continue;
         chosenOff.push(emp);
         empCorners.forEach((c) => {
