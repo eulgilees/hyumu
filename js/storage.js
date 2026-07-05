@@ -72,7 +72,9 @@ Hyumu.Storage = (function () {
       name: e.name,
       recurringOff: [...e.recurringOff],
       specificOff: [],
+      specificOffTypes: {},
       shiftPreference: e.shiftPreference || 'ANY',
+      edgeShiftPreference: !!e.edgeShiftPreference,
       corner: e.corner || '',
       corners: Hyumu.Model.employeeCorners(e)
     }));
