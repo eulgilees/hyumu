@@ -192,6 +192,12 @@ Hyumu.Scheduler = (function () {
     // still exceeds their cap, no matter which pass caused it.
     enforceConsecutiveCap(schedule, employees, dates, personalCapByEmpId, conflicts);
 
+    // 목표 휴무일수는 필수 조건이라 무조건 맞춰야 한다(사장님 지시: "필수는 무조건이라 억지로
+    // 라도 끼워맞춰야해") — 코너 최소인원 여유가 없어서(예: 파트장이 1명뿐이라 항상 근무해야
+    // 하는 경우) 위 패스들이 목표만큼 못 쉬게 했다면, 여기서 코너 하한을 깨더라도 강제로
+    // 채운다. 연속근무 상한은 건드리지 않는다(쉬는 날을 늘리는 건 상한을 어길 수 없음).
+    enforceTargetOffDays(schedule, employees, dates, targetByEmpId, cornerMinStaffGlobal, conflicts);
+
     assignShifts(schedule, employees, dates, rules, conflicts);
 
     doc.schedule = schedule;
@@ -567,27 +573,10 @@ Hyumu.Scheduler = (function () {
     // leftover slack, evening the group out as far as the shared cap allows.
     fillCornerSlack(schedule, employees, allEmployees, dates, cornerAllowedOff, monthOff, target, excludeDatesForSlack);
 
-    // 목표 휴무일수는 근사치가 아니라 반드시 정확히 맞아야 하는 법정 최소치다(사장님 지시:
-    // "가깝게? 그거 안돼... 법적으로 지켜야할 사항이야") — fillCornerSlack까지 끝난 뒤 최종
-    // 상태로 다시 확인해서, 그래도 안 맞는 사람이 있으면(연속근무 제한 등으로 정말 불가피한
-    // 경우만 여기 남는다) 조용히 넘어가지 않고 반드시 알린다.
-    let maxOff = -Infinity;
-    let minOff = Infinity;
-    let missedTarget = false;
-    employees.forEach((emp) => {
-      maxOff = Math.max(maxOff, monthOff[emp.id]);
-      minOff = Math.min(minOff, monthOff[emp.id]);
-      if (monthOff[emp.id] !== Math.round(target[emp.id])) missedTarget = true;
-    });
-    if (missedTarget) {
-      conflicts.push({
-        date: null,
-        type: 'IMBALANCE_NOTICE',
-        message: `전체 휴무일수를 목표에 정확히 맞추지 못했습니다 (최대 ${maxOff}일, 최소 ${minOff}일). 연속 근무 제한 때문에 더 이상 조정할 수 없는 경우입니다.`,
-        employeeIds: []
-      });
-    }
-
+    // 목표 휴무일수가 실제로 지켜졌는지는 이 시점이 아니라 generateSchedule 맨 마지막의
+    // enforceTargetOffDays에서 최종적으로 강제/확인한다 — 그 전까지는 다른 그룹의 backfill 등
+    // 이후 패스가 이 값을 더 바꿀 수 있어서, 여기서 미리 "못 맞췄다"고 알리면 나중에 실제로는
+    // 맞춰졌는데도 오래된 알림이 남아 헷갈릴 수 있다.
     return { target, personalCap };
   }
 
@@ -627,6 +616,66 @@ Hyumu.Scheduler = (function () {
         } else {
           streak = 0;
         }
+      }
+    });
+  }
+
+  // Absolute last resort for the one rule that must never lose to anything else: everyone's
+  // guaranteed target off-days count (사장님 지시: "필수는 무조건이라 억지로라도 끼워맞춰야해").
+  // Every earlier pass (Phase 1 pacing, rebalanceDecoupled, fillCornerSlack, backfillPartLeaders,
+  // backfillCornerShortfalls) respects corner staffing minimums while granting rest, which can
+  // leave someone under target when their corner has no spare capacity at all (e.g. a corner with
+  // only one member left, who the "always ≥1 working" rule requires to work every day). This pass
+  // runs after all of that and, for anyone still short, forces extra rest days regardless of
+  // corner minimums — converting a WORK day to OFF can never break the consecutive-work cap
+  // (resting only ever shortens a streak), so the one thing this can never violate is the cap.
+  // Days that would drop a corner below its own minimum are tried last and flagged, so the owner
+  // can see exactly which day and corner absorbed the trade-off.
+  function enforceTargetOffDays(schedule, employees, dates, targetByEmpId, cornerMinStaffGlobal, conflicts) {
+    function cornerWorkingWithout(emp, date) {
+      return Model.employeeCorners(emp).every((c) => {
+        const need = cornerMinStaffGlobal[c];
+        if (!need) return true;
+        const working = employees.filter((e) => e.id !== emp.id && Model.employeeCorners(e).includes(c) && schedule[e.id][date].status === 'WORK').length;
+        return working >= need;
+      });
+    }
+
+    employees.forEach((emp) => {
+      const target = targetByEmpId[emp.id];
+      if (target == null) return;
+      let offCount = 0;
+      dates.forEach((d) => {
+        if (schedule[emp.id][d].status === 'OFF' && !isExemptLockedOff(emp, d, schedule)) offCount++;
+      });
+      let deficit = Math.round(target) - offCount;
+      if (deficit <= 0) return;
+
+      const candidates = dates.filter((d) => schedule[emp.id][d].status === 'WORK' && schedule[emp.id][d].source === 'AUTO');
+      candidates.sort((a, b) => (cornerWorkingWithout(emp, a) ? 0 : 1) - (cornerWorkingWithout(emp, b) ? 0 : 1));
+
+      for (const d of candidates) {
+        if (deficit <= 0) break;
+        const safeCornerToday = cornerWorkingWithout(emp, d);
+        setCell(schedule, emp.id, d, 'OFF', 'AUTO_FAIRNESS');
+        deficit--;
+        if (!safeCornerToday) {
+          conflicts.push({
+            date: d,
+            type: 'CORNER_MIN_STAFF_VIOLATION',
+            message: `${d}: ${emp.name}님의 목표 휴무일수를 맞추기 위해 근무를 휴무로 바꿨는데, 이 날 소속 코너 최소 인원이 채워지지 않습니다.`,
+            employeeIds: [emp.id]
+          });
+        }
+      }
+
+      if (deficit > 0) {
+        conflicts.push({
+          date: null,
+          type: 'IMBALANCE_NOTICE',
+          message: `${emp.name}님은 목표 휴무일수(${target}일)를 다 채우지 못했습니다 — 휴무로 바꿀 수 있는 근무일 자체가 부족합니다.`,
+          employeeIds: [emp.id]
+        });
       }
     });
   }
