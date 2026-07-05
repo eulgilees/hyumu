@@ -217,19 +217,28 @@ Hyumu.App = (function () {
       await save();
       renderContent();
     },
-    async onApplyDateSelections(id, selections, leaveType) {
+    async onApplyDateSelections(id, selections) {
       const emp = doc.employees.find((e) => e.id === id);
       if (!emp) return;
       if (!emp.specificOffTypes) emp.specificOffTypes = {};
+      const FULL_OFF_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED'];
+      // 반차(HALF_MORNING/HALF_AFTERNOON)는 오전/오후 중 절반만 쉬는 것이므로 하루 전체를
+      // 잠그는 specificOff가 아니라, 일하는 나머지 반쪽 근무를 확정하는 WORK 셀로 저장하고
+      // halfDayLeave에 어느 쪽이 반차인지 표시만 남긴다.
       Object.entries(selections).forEach(([date, choice]) => {
-        if (choice === 'OFF') {
+        if (FULL_OFF_TYPES.includes(choice)) {
           if (!emp.specificOff.includes(date)) emp.specificOff.push(date);
-          emp.specificOffTypes[date] = leaveType || 'PERSONAL';
+          emp.specificOffTypes[date] = choice;
+          if (doc.schedule[id] && doc.schedule[id][date] && doc.schedule[id][date].source === 'MANUAL') {
+            delete doc.schedule[id][date];
+          }
         } else {
-          // 오전/오후만 근무 — 확정 근무로 캘린더에 바로 반영, 스케줄러가 다시 계산해도
-          // MANUAL 입력이라 유지된다.
+          const workShift = choice === 'HALF_MORNING' ? 'AFTERNOON' : choice === 'HALF_AFTERNOON' ? 'MORNING' : choice;
+          const halfDayLeave = choice === 'HALF_MORNING' ? 'MORNING' : choice === 'HALF_AFTERNOON' ? 'AFTERNOON' : null;
           if (!doc.schedule[id]) doc.schedule[id] = {};
-          doc.schedule[id][date] = { status: 'WORK', source: 'MANUAL', shift: choice };
+          doc.schedule[id][date] = { status: 'WORK', source: 'MANUAL', shift: workShift, halfDayLeave };
+          emp.specificOff = emp.specificOff.filter((d) => d !== date);
+          if (emp.specificOffTypes) delete emp.specificOffTypes[date];
         }
       });
       emp.specificOff.sort();

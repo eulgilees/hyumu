@@ -109,8 +109,11 @@ Hyumu.Render = (function () {
     // 휴무 → 오전 → 오후 → (선택 해제) 순으로 돌아가고, 완료 버튼을 눌러야 한꺼번에 반영된다
     // (사장님 지시: "한 번 누르면 휴무 두 번 누르면 오전 세번 누르면 오후... 완료 버튼 누르면
     // 자동 입력").
-    const MULTI_CYCLE = ['OFF', 'MORNING', 'AFTERNOON'];
-    const MULTI_LABEL = { OFF: '휴', MORNING: '전', AFTERNOON: '후' };
+    const MULTI_CYCLE = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED', 'HALF_MORNING', 'HALF_AFTERNOON', 'MORNING', 'AFTERNOON'];
+    const MULTI_LABEL = {
+      PERSONAL: '개인', ANNUAL: '연차', CHEDAN: '체단', RECOGNIZED: '인정',
+      HALF_MORNING: '오전반', HALF_AFTERNOON: '오후반', MORNING: '전', AFTERNOON: '후'
+    };
     const multiSelections = {};
 
     const popup = document.createElement('div');
@@ -137,7 +140,7 @@ Hyumu.Render = (function () {
         ? `<p class="cc-range-hint">${rangeStart ? `시작일 ${rangeStart} · 종료일을 선택하세요` : '시작일을 선택하세요'}</p>`
         : '';
       const multiHint = onMultiSelect && !rangeMode
-        ? '<p class="cc-range-hint">날짜를 누를 때마다 휴무 → 오전 → 오후 → 선택해제 순으로 바뀌어요. 다 고르면 완료를 누르세요.</p>'
+        ? '<p class="cc-range-hint">날짜를 누를 때마다 개인휴무 → 연차 → 체단 → 인정 → 오전반차 → 오후반차 → 오전근무 → 오후근무 → 선택해제 순으로 바뀌어요. 다 고르면 완료를 누르세요.</p>'
         : '';
       const multiSelectedCount = Object.keys(multiSelections).length;
       popup.innerHTML = `
@@ -417,9 +420,6 @@ Hyumu.Render = (function () {
         </div>
         <div class="specific-off">
           <div class="specific-off-add-row">
-            <select class="emp-leave-type" data-id="${emp.id}">
-              ${Object.entries(Model.LEAVE_TYPES).map(([key, label]) => `<option value="${key}">${label}</option>`).join('')}
-            </select>
             <button type="button" class="btn-open-calendar" data-id="${emp.id}">+ 개인 휴무 날짜 추가</button>
             ${emp.specificOff.length > 0 ? `<button type="button" class="btn-clear-specific-off" data-id="${emp.id}">전체 삭제</button>` : ''}
           </div>
@@ -507,14 +507,12 @@ Hyumu.Render = (function () {
     );
     container.querySelectorAll('.btn-open-calendar').forEach((btn) =>
       btn.addEventListener('click', () => {
-        const card = btn.closest('.employee-card');
-        const typeSelect = card.querySelector('.emp-leave-type');
         openCustomCalendar(btn, null, (dateStr) => {
-          handlers.onAddSpecificOff(btn.dataset.id, dateStr, typeSelect ? typeSelect.value : 'PERSONAL');
+          handlers.onAddSpecificOff(btn.dataset.id, dateStr, 'PERSONAL');
         }, (startDate, endDate) => {
-          handlers.onAddSpecificOffRange(btn.dataset.id, startDate, endDate, typeSelect ? typeSelect.value : 'PERSONAL');
+          handlers.onAddSpecificOffRange(btn.dataset.id, startDate, endDate, 'PERSONAL');
         }, (selections) => {
-          handlers.onApplyDateSelections(btn.dataset.id, selections, typeSelect ? typeSelect.value : 'PERSONAL');
+          handlers.onApplyDateSelections(btn.dataset.id, selections);
         });
       })
     );
@@ -825,7 +823,10 @@ Hyumu.Render = (function () {
         const holidayBadge = isHolidayWork
           ? `<span class="holiday-choice-badge${cell.holidayChoice ? ' set' : ''}" title="공휴일 근무: ${cell.holidayChoice === 'SUBSTITUTE' ? '대체휴일' : cell.holidayChoice === 'PAY' ? '수당' : '미정 (직원 설정에서 지정)'}">${cell.holidayChoice === 'SUBSTITUTE' ? '대' : cell.holidayChoice === 'PAY' ? '수' : '?'}</span>`
           : '';
-        return `<td class="cal-cell${statusClass}${weekendClass}${redClass}${confClass}${lockClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}" data-locked="${isPersonalLock ? '1' : '0'}">${text}${holidayBadge}</td>`;
+        const halfDayBadge = cell.halfDayLeave
+          ? `<span class="halfday-badge" title="${cell.halfDayLeave === 'MORNING' ? '오전반차' : '오후반차'}">반</span>`
+          : '';
+        return `<td class="cal-cell${statusClass}${weekendClass}${redClass}${confClass}${lockClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}" data-locked="${isPersonalLock ? '1' : '0'}">${text}${holidayBadge}${halfDayBadge}</td>`;
       }).join('');
       return `<tr class="cal-row" data-corners="${esc(JSON.stringify(Model.employeeCorners(emp)))}"><td class="name-col">${esc(emp.name)}</td>${cells}<td class="total-col">${morningCount}</td><td class="total-col">${afternoonCount}</td><td class="total-col">${offCount}</td></tr>`;
     }).join('');

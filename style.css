@@ -184,6 +184,19 @@ body {
   color: #6b5200;
 }
 
+.halfday-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  width: 14px;
+  height: 14px;
+  line-height: 14px;
+  border-radius: 50%;
+  margin-left: 2px;
+  background: #fbe0ee;
+  color: #a3145a;
+}
+
 .warning {
   background: #fff3cd;
   border: 1px solid #ffde8a;
@@ -406,9 +419,34 @@ button {
   font-weight: 700;
 }
 
-.cc-day.cc-picked-OFF {
+.cc-day.cc-picked-PERSONAL {
   background: #fde8e8;
   color: #c0392b;
+}
+
+.cc-day.cc-picked-ANNUAL {
+  background: #fdf0e0;
+  color: #b9770e;
+}
+
+.cc-day.cc-picked-CHEDAN {
+  background: #f2e8fb;
+  color: #7d3c98;
+}
+
+.cc-day.cc-picked-RECOGNIZED {
+  background: #fdf8d8;
+  color: #9a8600;
+}
+
+.cc-day.cc-picked-HALF_MORNING {
+  background: #e0f7fa;
+  color: #007c91;
+}
+
+.cc-day.cc-picked-HALF_AFTERNOON {
+  background: #fbe0ee;
+  color: #a3145a;
 }
 
 .cc-day.cc-picked-MORNING {
