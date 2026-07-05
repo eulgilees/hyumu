@@ -217,6 +217,25 @@ Hyumu.App = (function () {
       await save();
       renderContent();
     },
+    async onApplyDateSelections(id, selections, leaveType) {
+      const emp = doc.employees.find((e) => e.id === id);
+      if (!emp) return;
+      if (!emp.specificOffTypes) emp.specificOffTypes = {};
+      Object.entries(selections).forEach(([date, choice]) => {
+        if (choice === 'OFF') {
+          if (!emp.specificOff.includes(date)) emp.specificOff.push(date);
+          emp.specificOffTypes[date] = leaveType || 'PERSONAL';
+        } else {
+          // 오전/오후만 근무 — 확정 근무로 캘린더에 바로 반영, 스케줄러가 다시 계산해도
+          // MANUAL 입력이라 유지된다.
+          if (!doc.schedule[id]) doc.schedule[id] = {};
+          doc.schedule[id][date] = { status: 'WORK', source: 'MANUAL', shift: choice };
+        }
+      });
+      emp.specificOff.sort();
+      await save();
+      renderContent();
+    },
     async onRemoveSpecificOff(id, date) {
       const emp = doc.employees.find((e) => e.id === id);
       if (!emp) return;

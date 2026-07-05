@@ -97,7 +97,7 @@ Hyumu.Render = (function () {
     setTimeout(() => document.addEventListener('mousedown', handleOutsideCalendarClick, true), 0);
   }
 
-  function openCustomCalendar(anchorEl, initialDateStr, onSelect, onSelectRange) {
+  function openCustomCalendar(anchorEl, initialDateStr, onSelect, onSelectRange, onMultiSelect) {
     closeCalendarPopup();
     const today = new Date();
     let [y, m] = initialDateStr
@@ -105,6 +105,13 @@ Hyumu.Render = (function () {
       : [today.getFullYear(), today.getMonth() + 1];
     let rangeMode = false;
     let rangeStart = null;
+    // 여러 날짜를 한 번에 고르고 싶을 때(onMultiSelect가 있을 때) 클릭할 때마다
+    // 휴무 → 오전 → 오후 → (선택 해제) 순으로 돌아가고, 완료 버튼을 눌러야 한꺼번에 반영된다
+    // (사장님 지시: "한 번 누르면 휴무 두 번 누르면 오전 세번 누르면 오후... 완료 버튼 누르면
+    // 자동 입력").
+    const MULTI_CYCLE = ['OFF', 'MORNING', 'AFTERNOON'];
+    const MULTI_LABEL = { OFF: '휴', MORNING: '전', AFTERNOON: '후' };
+    const multiSelections = {};
 
     const popup = document.createElement('div');
     popup.className = 'custom-calendar-popup';
@@ -121,11 +128,18 @@ Hyumu.Render = (function () {
         const dateStr = Model.dateISO(y, m, d);
         const isToday = dateStr === Model.dateISO(today.getFullYear(), today.getMonth() + 1, today.getDate());
         const isRangeStart = rangeMode && rangeStart === dateStr;
-        cells.push(`<button type="button" class="cc-day${isToday ? ' cc-today' : ''}${isRangeStart ? ' cc-range-start' : ''}" data-date="${dateStr}">${d}</button>`);
+        const picked = multiSelections[dateStr];
+        const pickedClass = picked ? ` cc-picked cc-picked-${picked}` : '';
+        const pickedBadge = picked ? `<span class="cc-pick-badge">${MULTI_LABEL[picked]}</span>` : '';
+        cells.push(`<button type="button" class="cc-day${isToday ? ' cc-today' : ''}${isRangeStart ? ' cc-range-start' : ''}${pickedClass}" data-date="${dateStr}">${d}${pickedBadge}</button>`);
       }
       const rangeHint = !onSelectRange ? '' : rangeMode
         ? `<p class="cc-range-hint">${rangeStart ? `시작일 ${rangeStart} · 종료일을 선택하세요` : '시작일을 선택하세요'}</p>`
         : '';
+      const multiHint = onMultiSelect && !rangeMode
+        ? '<p class="cc-range-hint">날짜를 누를 때마다 휴무 → 오전 → 오후 → 선택해제 순으로 바뀌어요. 다 고르면 완료를 누르세요.</p>'
+        : '';
+      const multiSelectedCount = Object.keys(multiSelections).length;
       popup.innerHTML = `
         <div class="cc-header">
           <button type="button" class="cc-nav" id="cc-prev">‹</button>
@@ -138,8 +152,11 @@ Hyumu.Render = (function () {
         <div class="cc-grid">${cells.join('')}</div>
         ${onSelectRange ? `<label class="cc-range-toggle"><input type="checkbox" id="cc-range-mode" ${rangeMode ? 'checked' : ''}> 기간으로 선택 (여러 날짜 한번에)</label>` : ''}
         ${rangeHint}
+        ${multiHint}
         <div class="cc-footer">
           <button type="button" class="cc-link" id="cc-today-btn">오늘</button>
+          ${onMultiSelect && !rangeMode && multiSelectedCount > 0 ? '<button type="button" class="cc-link" id="cc-reset-btn">선택 초기화</button>' : ''}
+          ${onMultiSelect && !rangeMode ? `<button type="button" class="btn-primary" id="cc-done-btn" ${multiSelectedCount === 0 ? 'disabled' : ''}>완료 (${multiSelectedCount})</button>` : ''}
           <button type="button" class="cc-link" id="cc-close-btn">닫기</button>
         </div>
       `;
@@ -156,6 +173,21 @@ Hyumu.Render = (function () {
         renderMonth();
       });
       popup.querySelector('#cc-close-btn').addEventListener('click', () => closeCalendarPopup());
+      const doneBtn = popup.querySelector('#cc-done-btn');
+      if (doneBtn) {
+        doneBtn.addEventListener('click', () => {
+          if (Object.keys(multiSelections).length === 0) return;
+          onMultiSelect({ ...multiSelections });
+          closeCalendarPopup();
+        });
+      }
+      const resetBtn = popup.querySelector('#cc-reset-btn');
+      if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+          Object.keys(multiSelections).forEach((k) => delete multiSelections[k]);
+          renderMonth();
+        });
+      }
       const rangeToggle = popup.querySelector('#cc-range-mode');
       if (rangeToggle) {
         rangeToggle.addEventListener('change', () => {
@@ -176,6 +208,16 @@ Hyumu.Render = (function () {
               onSelectRange(a < b ? a : b, a < b ? b : a);
               closeCalendarPopup();
             }
+          } else if (onMultiSelect) {
+            const date = btn.dataset.date;
+            const current = multiSelections[date];
+            const idx = current ? MULTI_CYCLE.indexOf(current) : -1;
+            if (idx === MULTI_CYCLE.length - 1) {
+              delete multiSelections[date];
+            } else {
+              multiSelections[date] = MULTI_CYCLE[idx + 1];
+            }
+            renderMonth();
           } else {
             onSelect(btn.dataset.date);
             closeCalendarPopup();
@@ -470,6 +512,8 @@ Hyumu.Render = (function () {
           handlers.onAddSpecificOff(btn.dataset.id, dateStr, typeSelect ? typeSelect.value : 'PERSONAL');
         }, (startDate, endDate) => {
           handlers.onAddSpecificOffRange(btn.dataset.id, startDate, endDate, typeSelect ? typeSelect.value : 'PERSONAL');
+        }, (selections) => {
+          handlers.onApplyDateSelections(btn.dataset.id, selections, typeSelect ? typeSelect.value : 'PERSONAL');
         });
       })
     );

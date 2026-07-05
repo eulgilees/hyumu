@@ -384,6 +384,33 @@ button {
   font-weight: 700;
 }
 
+.cc-day {
+  position: relative;
+}
+
+.cc-pick-badge {
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.cc-day.cc-picked-OFF {
+  background: #fde8e8;
+  color: #c0392b;
+}
+
+.cc-day.cc-picked-MORNING {
+  background: #e8f4fd;
+  color: #1c6ea4;
+}
+
+.cc-day.cc-picked-AFTERNOON {
+  background: #eaf7ec;
+  color: #2e7d32;
+}
+
 .cc-range-toggle {
   display: flex;
   align-items: center;
