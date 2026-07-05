@@ -303,7 +303,32 @@ Hyumu.Render = (function () {
   }
 
   function renderEmployeeScreen(container, doc, handlers) {
-    const rows = doc.employees.map((emp) => `
+    const dates = Model.allDatesOfMonth(doc.month.year, doc.month.month);
+    const rows = doc.employees.map((emp) => {
+      const empSchedule = doc.schedule[emp.id] || {};
+      const holidayWorkDates = dates.filter((d) => {
+        const cell = empSchedule[d];
+        return cell && cell.status === 'WORK' && Model.holidayName(d);
+      });
+      const holidayChoiceHtml = holidayWorkDates.length > 0 ? `
+        <div class="specific-off">
+          <label class="hint">공휴일 근무 처리 (수당 또는 대체휴일)</label>
+          ${holidayWorkDates.map((d) => {
+            const choice = empSchedule[d].holidayChoice || '';
+            return `
+            <div class="holiday-choice-row">
+              <span>${d} (${esc(Model.holidayName(d))})</span>
+              <select class="emp-holiday-choice" data-id="${emp.id}" data-date="${d}">
+                <option value="" ${choice === '' ? 'selected' : ''}>미정</option>
+                <option value="PAY" ${choice === 'PAY' ? 'selected' : ''}>수당</option>
+                <option value="SUBSTITUTE" ${choice === 'SUBSTITUTE' ? 'selected' : ''}>대체휴일 (+1 목표휴무일)</option>
+              </select>
+            </div>
+          `;
+          }).join('')}
+        </div>
+      ` : '';
+      return `
       <div class="employee-card" data-id="${emp.id}" data-corners="${esc(JSON.stringify(Model.employeeCorners(emp)))}">
         <div class="employee-row">
           <input type="text" class="emp-name" value="${esc(emp.name)}" placeholder="이름" data-id="${emp.id}">
@@ -359,8 +384,10 @@ Hyumu.Render = (function () {
             ${emp.specificOff.map((d) => `<span class="chip">${d} (${esc(Model.LEAVE_TYPES[Model.leaveTypeOf(emp, d)])}) <button type="button" class="chip-remove" data-id="${emp.id}" data-date="${d}">×</button></span>`).join('')}
           </div>
         </div>
+        ${holidayChoiceHtml}
       </div>
-    `).join('');
+    `;
+    }).join('');
 
     container.innerHTML = `
       <section class="screen">
@@ -448,6 +475,11 @@ Hyumu.Render = (function () {
     );
     container.querySelectorAll('.chip-remove').forEach((btn) =>
       btn.addEventListener('click', () => handlers.onRemoveSpecificOff(btn.dataset.id, btn.dataset.date))
+    );
+    container.querySelectorAll('.emp-holiday-choice').forEach((select) =>
+      select.addEventListener('change', () =>
+        handlers.onSetHolidayChoice(select.dataset.id, select.dataset.date, select.value || null)
+      )
     );
   }
 
@@ -735,9 +767,11 @@ Hyumu.Render = (function () {
           if (cell.shift === 'MORNING') morningCount++;
           else if (cell.shift === 'AFTERNOON') afternoonCount++;
         }
+        // 공휴일 근무 처리(수당/대체휴일)는 직원 설정 화면에서만 바꾼다(사장님 지시: "캘린더에서
+        // 바꾸면 안되고 직원관리에서 바꿔야해") — 여기서는 상태만 참고용으로 보여준다.
         const isHolidayWork = cell.status === 'WORK' && !!Model.holidayName(d);
         const holidayBadge = isHolidayWork
-          ? `<span class="holiday-choice-badge${cell.holidayChoice ? ' set' : ''}" data-emp="${emp.id}" data-date="${d}" data-choice="${cell.holidayChoice || ''}" title="공휴일 근무: 수당/대체휴일 선택">${cell.holidayChoice === 'SUBSTITUTE' ? '대' : cell.holidayChoice === 'PAY' ? '수' : '?'}</span>`
+          ? `<span class="holiday-choice-badge${cell.holidayChoice ? ' set' : ''}" title="공휴일 근무: ${cell.holidayChoice === 'SUBSTITUTE' ? '대체휴일' : cell.holidayChoice === 'PAY' ? '수당' : '미정 (직원 설정에서 지정)'}">${cell.holidayChoice === 'SUBSTITUTE' ? '대' : cell.holidayChoice === 'PAY' ? '수' : '?'}</span>`
           : '';
         return `<td class="cal-cell${statusClass}${weekendClass}${redClass}${confClass}${lockClass}" data-emp="${emp.id}" data-date="${d}" data-status="${cell.status}" data-shift="${cell.shift || ''}" data-locked="${isPersonalLock ? '1' : '0'}">${text}${holidayBadge}</td>`;
       }).join('');
@@ -810,14 +844,6 @@ Hyumu.Render = (function () {
       cell.addEventListener('click', () => {
         if (cell.dataset.locked === '1') return;
         handlers.onToggleCell(cell.dataset.emp, cell.dataset.date, cell.dataset.status, cell.dataset.shift || null);
-      });
-    });
-    container.querySelectorAll('.holiday-choice-badge').forEach((badge) => {
-      badge.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const order = ['', 'PAY', 'SUBSTITUTE'];
-        const next = order[(order.indexOf(badge.dataset.choice) + 1) % order.length];
-        handlers.onSetHolidayChoice(badge.dataset.emp, badge.dataset.date, next || null);
       });
     });
     function updateDateSummary() {

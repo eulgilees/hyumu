@@ -149,6 +149,13 @@ Hyumu.App = (function () {
   };
 
   const employeeHandlers = {
+    async onSetHolidayChoice(empId, date, choice) {
+      const cell = doc.schedule[empId] && doc.schedule[empId][date];
+      if (!cell) return;
+      cell.holidayChoice = choice;
+      await save();
+      renderContent();
+    },
     async onAddEmployee() {
       const id = `emp${doc.meta.nextEmployeeId++}`;
       doc.employees.unshift(Model.createEmployee(id, `직원${doc.employees.length + 1}`));
@@ -316,13 +323,6 @@ Hyumu.App = (function () {
   };
 
   const calendarHandlers = {
-    async onSetHolidayChoice(empId, date, choice) {
-      const cell = doc.schedule[empId] && doc.schedule[empId][date];
-      if (!cell) return;
-      cell.holidayChoice = choice;
-      await save();
-      renderContent();
-    },
     async onToggleCell(empId, date, currentStatus, currentShift) {
       let next;
       if (currentStatus === 'OFF') {
