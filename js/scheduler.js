@@ -354,6 +354,23 @@ Hyumu.Scheduler = (function () {
       }));
     }
 
+    // Everyone starts the month with zero work history, so nobody looks "urgent" by the pacing
+    // formula until the whole group hits the consecutive-work cap on the exact same day — by
+    // then there's only reqRoom slots for however many hit it together, and the rest overflow the
+    // cap no matter how the pacing is tuned. A person scheduling by hand would pre-empt this by
+    // staggering a few people's first rest day early; this assigns each employee a deterministic
+    // "cohort" day within the first effectiveCap+1 days so the group is already desynchronized by
+    // the time the cap would otherwise be hit simultaneously. Only applies to whoever is still on
+    // an unbroken from-day-1 streak when their cohort day arrives — anyone whose locked leave
+    // already broke their streak earlier doesn't need the nudge.
+    const earlyStaggerDay = {};
+    employees.forEach((emp, idx) => {
+      earlyStaggerDay[emp.id] = idx % (effectiveCap + 1);
+    });
+    function needsEarlyStagger(emp, dayIndex) {
+      return dayIndex === earlyStaggerDay[emp.id] && consecutiveWork[emp.id] === dayIndex;
+    }
+
     // Phase 1: chronological greedy fill
     // totalOffSoFar tracks the running sum of fairnessOff across all employees, used below to
     // pace daily rest slots against the target instead of against staffing headroom.
@@ -430,7 +447,8 @@ Hyumu.Scheduler = (function () {
           employeeIds: freeEmployees.filter((emp) => consecutiveWork[emp.id] >= personalCap[emp.id]).map((e) => e.id)
         });
       }
-      const remainingSlots = Math.max(Math.min(paceSlots, reqRoom), requiredOffForMaxStaff, Math.min(criticalCount, reqRoom));
+      const staggerNeedCount = freeEmployees.filter((emp) => needsEarlyStagger(emp, dayIndex)).length;
+      const remainingSlots = Math.max(Math.min(paceSlots, reqRoom), requiredOffForMaxStaff, Math.min(criticalCount, reqRoom), Math.min(staggerNeedCount, reqRoom));
       const candidates = freeEmployees;
 
       // Per-corner OFF budget: same principle as the store-wide staffing room above — respect
@@ -466,6 +484,9 @@ Hyumu.Scheduler = (function () {
       // 휴무일수 편차보다 먼저 본다 — 매번 상한(4일)까지 꽉 채워 일하다 강제휴무로만 쉬는 패턴이
       // 아니라, 이미 며칠 일한 사람부터 우선적으로 쉬게 해서 짧고 잦은 휴무가 기본값이 되게 한다.
       candidates.sort((a, b) => {
+        const staggerA = needsEarlyStagger(a, dayIndex) ? 1 : 0;
+        const staggerB = needsEarlyStagger(b, dayIndex) ? 1 : 0;
+        if (staggerA !== staggerB) return staggerB - staggerA;
         const collideA = forecastsForcedCollision(a, dayIndex) ? 1 : 0;
         const collideB = forecastsForcedCollision(b, dayIndex) ? 1 : 0;
         if (collideA !== collideB) return collideB - collideA;
