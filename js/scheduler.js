@@ -45,9 +45,28 @@ Hyumu.Scheduler = (function () {
     return empCorners.some((c) => cornerAllowedOff[c] != null && (cornerOffToday[c] || 0) >= cornerAllowedOff[c]);
   }
 
-  function generateSchedule(doc) {
+  // 전달 문서의 말일 기준으로 각 직원의 실제 연속근무일수를 계산한다 — 이번 달 스케줄이 그
+  // 연속근무를 이어받는 출발점으로 쓴다(직원 id가 전달과 이번 달에 같아야 이어받아짐).
+  function computeCarryStreak(previousMonthDoc) {
+    const carry = {};
+    if (!previousMonthDoc || !previousMonthDoc.schedule || !previousMonthDoc.month) return carry;
+    const prevDates = Model.allDatesOfMonth(previousMonthDoc.month.year, previousMonthDoc.month.month);
+    Object.keys(previousMonthDoc.schedule).forEach((empId) => {
+      let streak = 0;
+      for (let i = prevDates.length - 1; i >= 0; i--) {
+        const cell = previousMonthDoc.schedule[empId][prevDates[i]];
+        if (cell && cell.status === 'WORK') streak++;
+        else break;
+      }
+      carry[empId] = streak;
+    });
+    return carry;
+  }
+
+  function generateSchedule(doc, previousMonthDoc) {
     const { employees, rules, month } = doc;
     const dates = Model.allDatesOfMonth(month.year, month.month);
+    const carryStreakByEmpId = computeCarryStreak(previousMonthDoc);
 
     const schedule = {};
     employees.forEach((emp) => {
@@ -137,7 +156,7 @@ Hyumu.Scheduler = (function () {
     ['문구', '서적'].forEach((dept) => {
       if (deptEmployees[dept].length === 0) return;
       const groupRules = Object.assign({}, rules, deptRules[dept] || {});
-      const result = runGroupSchedule(deptEmployees[dept], groupRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal);
+      const result = runGroupSchedule(deptEmployees[dept], groupRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal, undefined, carryStreakByEmpId);
       Object.assign(targetByEmpId, result.target);
       Object.assign(personalCapByEmpId, result.personalCap);
     });
@@ -167,7 +186,7 @@ Hyumu.Scheduler = (function () {
       // 1~3명)에 그대로 적용하면 매일 인원 부족으로 뜬다. 관리는 인원 하한 없이 목표
       // 휴무일수 페이스와 연속근무 제한만 따른다(점장은 상관없다는 사장님 지시).
       const adminRules = Object.assign({}, rules, { minStaffDefault: 0, minMorningStaff: 0, minAfternoonStaff: 0 });
-      const adminResult = runGroupSchedule(adminEmployees, adminRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal, deptShortfallDates);
+      const adminResult = runGroupSchedule(adminEmployees, adminRules, schedule, dates, conflicts, employees, cornerAllowedOff, cornerMinStaffGlobal, deptShortfallDates, carryStreakByEmpId);
       Object.assign(targetByEmpId, adminResult.target);
       Object.assign(personalCapByEmpId, adminResult.personalCap);
     }
@@ -204,17 +223,21 @@ Hyumu.Scheduler = (function () {
   // Runs the full Phase 1 greedy fill + rebalance passes for one self-contained pool of
   // employees (a department, or the 관리 catch-all), writing into the shared `schedule` and
   // `conflicts`. Everything here only ever looks at `groupEmployees` — no cross-group effects.
-  function runGroupSchedule(groupEmployees, rules, schedule, dates, conflicts, allEmployees, cornerAllowedOff, cornerMinStaffGlobal, excludeDatesForSlack) {
+  function runGroupSchedule(groupEmployees, rules, schedule, dates, conflicts, allEmployees, cornerAllowedOff, cornerMinStaffGlobal, excludeDatesForSlack, carryStreakByEmpId) {
     const n = groupEmployees.length;
     const employees = groupEmployees;
 
+    // 이번 달 1일을 다들 "방금 입사한 사람"처럼 0일째로 취급하면, 아무도 아직 상한에 안
+    // 닿았으니 전원이 나흘째에 동시에 상한을 맞아버린다(사장님 지시: "전달 휴무를 고려해서
+    // 월초 휴무까지 짜야하는데 그걸 안줘서 일이 이렇게 복잡해진것 같다") — 전달 말일 기준
+    // 실제 연속근무일수를 이어받아 시작하면 자연스럽게 이미 흩어진 상태로 출발하게 된다.
     const consecutiveWork = {};
     const totalOff = {};
     const weekendOff = {};
     const redDayOff = {};
     const fairnessOff = {};
     employees.forEach((emp) => {
-      consecutiveWork[emp.id] = 0;
+      consecutiveWork[emp.id] = (carryStreakByEmpId && carryStreakByEmpId[emp.id]) || 0;
       totalOff[emp.id] = 0;
       weekendOff[emp.id] = 0;
       redDayOff[emp.id] = 0;
@@ -279,6 +302,11 @@ Hyumu.Scheduler = (function () {
         if (longestLockedRun >= rules.longBreakDays) personal = Math.max(effectiveCap, rules.extendedWorkCap);
       }
       personalCap[emp.id] = personal;
+    });
+    // 전달에서 이어받은 연속근무일수가 이번 달 개인 상한보다 크면(연장 상한이 이번 달엔 없는
+    // 경우 등) 상한만큼으로 눌러준다 — "이미 상한에 닿아 있다"는 뜻으로 취급.
+    employees.forEach((emp) => {
+      consecutiveWork[emp.id] = Math.min(consecutiveWork[emp.id], personalCap[emp.id]);
     });
 
     const shiftMinTotal = (rules.minMorningStaff || 0) + (rules.minAfternoonStaff || 0);

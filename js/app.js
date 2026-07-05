@@ -38,6 +38,16 @@ Hyumu.App = (function () {
     renderAll();
   }
 
+  // 전달 마지막 며칠의 실제 근무 기록을 이어받아야 이번 달 1일부터 다들 동시에 상한에 닿는
+  // 문제가 안 생긴다(사장님 지시: "전달 휴무를 고려해서 월초 휴무까지 짜야하는데") — 없으면
+  // (매장 첫 달 등) undefined로 넘어가고 스케줄러가 0부터 시작하는 기존 동작으로 처리한다.
+  async function loadPreviousMonthDoc() {
+    let { year, month } = doc.month;
+    month -= 1;
+    if (month < 1) { month = 12; year -= 1; }
+    return await Storage.loadMonth(state.store, year, month);
+  }
+
   const authHandlers = {
     onGotoSignup() {
       authScreen = 'signup';
@@ -296,7 +306,8 @@ Hyumu.App = (function () {
       renderContent();
     },
     async onGenerate() {
-      Scheduler.generateSchedule(doc);
+      const previousMonthDoc = await loadPreviousMonthDoc();
+      Scheduler.generateSchedule(doc, previousMonthDoc);
       await save();
       state.screen = 'calendar';
       Render.renderNav(navEl, state, navHandlers);
@@ -320,7 +331,8 @@ Hyumu.App = (function () {
       renderContent();
     },
     async onRegenerate() {
-      Scheduler.generateSchedule(doc);
+      const previousMonthDoc = await loadPreviousMonthDoc();
+      Scheduler.generateSchedule(doc, previousMonthDoc);
       await save();
       renderContent();
     },
@@ -333,7 +345,8 @@ Hyumu.App = (function () {
           }
         }
       }
-      Scheduler.generateSchedule(doc);
+      const previousMonthDoc = await loadPreviousMonthDoc();
+      Scheduler.generateSchedule(doc, previousMonthDoc);
       await save();
       renderContent();
     }
