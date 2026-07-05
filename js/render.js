@@ -605,12 +605,9 @@ Hyumu.Render = (function () {
                 <label>최대 연속 근무일수${ruleBadge('required')}</label>
                 <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="maxConsecutiveWorkDays" min="1" value="${dr.maxConsecutiveWorkDays != null ? dr.maxConsecutiveWorkDays : rules.maxConsecutiveWorkDays}">
               </div>
-              <div class="field-row">
-                <label>오전조 최소 인원${ruleBadge('recommended')}</label>
+              <div class="field-row field-row-combo">
+                <label>오전조 최소/최대 인원${ruleBadge('recommended')}</label>
                 <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="minMorningStaff" min="0" value="${dr.minMorningStaff != null ? dr.minMorningStaff : (rules.minMorningStaff || 0)}">
-              </div>
-              <div class="field-row">
-                <label>오전조 최대 인원${ruleBadge('recommended')}</label>
                 <input type="number" class="rule-dept-input" data-dept="${dept}" data-field="maxMorningStaff" min="0" value="${dr.maxMorningStaff != null ? dr.maxMorningStaff : ''}" placeholder="최소와 동일">
               </div>
               <div class="field-row">
