@@ -97,7 +97,27 @@ Hyumu.Render = (function () {
     setTimeout(() => document.addEventListener('mousedown', handleOutsideCalendarClick, true), 0);
   }
 
-  function openCustomCalendar(anchorEl, initialDateStr, onSelect, onSelectRange, onMultiSelect) {
+  // 이 직원에게 이미 저장된 개인 휴무(specificOff)와 MANUAL로 지정해둔 근무(오전/오후 확정,
+  // 반차, 런런)를 달력 다중선택 팝업이 바로 보여줄 수 있는 {날짜: 종류} 형태로 모은다.
+  function buildInitialCalendarSelections(emp, doc) {
+    const sel = {};
+    (emp.specificOff || []).forEach((d) => {
+      sel[d] = Model.leaveTypeOf(emp, d);
+    });
+    const empSchedule = doc.schedule[emp.id] || {};
+    Object.keys(empSchedule).forEach((d) => {
+      const cell = empSchedule[d];
+      if (!cell || cell.source !== 'MANUAL' || cell.status !== 'WORK') return;
+      if (cell.runrun) sel[d] = 'RUNRUN';
+      else if (cell.halfDayLeave === 'MORNING') sel[d] = 'HALF_MORNING';
+      else if (cell.halfDayLeave === 'AFTERNOON') sel[d] = 'HALF_AFTERNOON';
+      else if (cell.shift === 'MORNING') sel[d] = 'MORNING';
+      else if (cell.shift === 'AFTERNOON') sel[d] = 'AFTERNOON';
+    });
+    return sel;
+  }
+
+  function openCustomCalendar(anchorEl, initialDateStr, onSelect, onSelectRange, onMultiSelect, initialSelections) {
     closeCalendarPopup();
     const today = new Date();
     let [y, m] = initialDateStr
@@ -126,7 +146,10 @@ Hyumu.Render = (function () {
       HALF_MORNING: '오전반', HALF_AFTERNOON: '오후반', MORNING: '전', AFTERNOON: '후', RUNRUN: '런런'
     };
     let selectedLeaveType = 'PERSONAL';
-    const multiSelections = {};
+    // 이미 저장돼 있는 개인 휴무/근무 지정을 열자마자 보여주고 그 자리에서 바로 수정할 수
+    // 있게, 넘겨받은 기존 값으로 미리 채워둔다(사장님 지시: "개인 휴무 날짜 추가를 누르면
+    // 기존게 안 뜨는데 뜨게 해줬으면 좋겠어. 기존거도 수정가능하게").
+    const multiSelections = Object.assign({}, initialSelections);
 
     const popup = document.createElement('div');
     popup.className = 'custom-calendar-popup';
@@ -538,13 +561,15 @@ Hyumu.Render = (function () {
     );
     container.querySelectorAll('.btn-open-calendar').forEach((btn) =>
       btn.addEventListener('click', () => {
-        openCustomCalendar(btn, null, (dateStr) => {
+        const emp = doc.employees.find((e) => e.id === btn.dataset.id);
+        const openToDate = Model.dateISO(doc.month.year, doc.month.month, 1);
+        openCustomCalendar(btn, openToDate, (dateStr) => {
           handlers.onAddSpecificOff(btn.dataset.id, dateStr, 'PERSONAL');
         }, (startDate, endDate) => {
           handlers.onAddSpecificOffRange(btn.dataset.id, startDate, endDate, 'PERSONAL');
         }, (selections) => {
           handlers.onApplyDateSelections(btn.dataset.id, selections);
-        });
+        }, emp ? buildInitialCalendarSelections(emp, doc) : {});
       })
     );
     container.querySelectorAll('.chip-remove').forEach((btn) =>

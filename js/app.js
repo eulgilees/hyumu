@@ -48,6 +48,42 @@ Hyumu.App = (function () {
     return await Storage.loadMonth(state.store, year, month);
   }
 
+  const FULL_OFF_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED'];
+
+  // 달력에서 고른 한 달치 선택({날짜: 선택값})을 실제로 그 날짜가 속한 달 문서(targetDoc)에
+  // 반영한다. 반차(HALF_MORNING/HALF_AFTERNOON)는 오전/오후 중 절반만 쉬는 것이므로 하루
+  // 전체를 잠그는 specificOff가 아니라, 일하는 나머지 반쪽 근무를 확정하는 WORK 셀로 저장하고
+  // halfDayLeave에 어느 쪽이 반차인지 표시만 남긴다. 반환값은 그 직원이 targetDoc에 실제로
+  // 있어서 반영됐는지 여부.
+  function applyDateSelectionsToDoc(targetDoc, id, selections) {
+    const emp = targetDoc.employees.find((e) => e.id === id);
+    if (!emp) return false;
+    if (!emp.specificOffTypes) emp.specificOffTypes = {};
+    if (!targetDoc.schedule[id]) targetDoc.schedule[id] = {};
+    Object.entries(selections).forEach(([date, choice]) => {
+      if (choice === 'RUNRUN') {
+        // 런런(2시간 조기퇴근)은 휴무가 아니라 그날 근무는 그대로 두고 표시만 얹는 것이라,
+        // 기존 상태/근무조는 건드리지 않는다.
+        const existing = targetDoc.schedule[id][date] || { status: 'WORK', source: 'AUTO' };
+        targetDoc.schedule[id][date] = Object.assign({}, existing, { runrun: true });
+      } else if (FULL_OFF_TYPES.includes(choice)) {
+        if (!emp.specificOff.includes(date)) emp.specificOff.push(date);
+        emp.specificOffTypes[date] = choice;
+        if (targetDoc.schedule[id][date] && targetDoc.schedule[id][date].source === 'MANUAL') {
+          delete targetDoc.schedule[id][date];
+        }
+      } else {
+        const workShift = choice === 'HALF_MORNING' ? 'AFTERNOON' : choice === 'HALF_AFTERNOON' ? 'MORNING' : choice;
+        const halfDayLeave = choice === 'HALF_MORNING' ? 'MORNING' : choice === 'HALF_AFTERNOON' ? 'AFTERNOON' : null;
+        targetDoc.schedule[id][date] = { status: 'WORK', source: 'MANUAL', shift: workShift, halfDayLeave };
+        emp.specificOff = emp.specificOff.filter((d) => d !== date);
+        if (emp.specificOffTypes) delete emp.specificOffTypes[date];
+      }
+    });
+    emp.specificOff.sort();
+    return true;
+  }
+
   // 이미 만들어져 있는 미래 달 문서는 새 직원이 생겨도 자동으로 반영되지 않는다(각 달 문서는
   // 처음 만들어질 때 딱 한 번만 그 시점의 직원 목록을 복사해오기 때문) — 이번 달에서 직원을
   // 추가하면, 이미 존재하는 이후 달 문서들에도 같은 직원을 곧바로 끼워 넣어 계속 손으로
@@ -253,38 +289,36 @@ Hyumu.App = (function () {
       await save();
       renderContent();
     },
+    // 달력에서 고른 날짜가 지금 보고 있는 달이 아니라 다음 달 등 다른 달일 수도 있다(사장님
+    // 지시: "다음달 것도 미리 추가하고 싶을 수가 있잖아... 그건 다음달 거에 자동 반영되는거야")
+    // — 날짜별로 그 날짜가 속한 달의 문서를 찾아 각각 반영한다. 지금 보는 달은 이미 메모리에
+    // 있는 doc/save()를 그대로 쓰고, 다른 달은 그 달 문서를 불러와(없으면 미래 달만 새로
+    // 만들어) 저장한다.
     async onApplyDateSelections(id, selections) {
-      const emp = doc.employees.find((e) => e.id === id);
-      if (!emp) return;
-      if (!emp.specificOffTypes) emp.specificOffTypes = {};
-      const FULL_OFF_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED'];
-      // 반차(HALF_MORNING/HALF_AFTERNOON)는 오전/오후 중 절반만 쉬는 것이므로 하루 전체를
-      // 잠그는 specificOff가 아니라, 일하는 나머지 반쪽 근무를 확정하는 WORK 셀로 저장하고
-      // halfDayLeave에 어느 쪽이 반차인지 표시만 남긴다.
+      const currentKey = Model.monthKey(doc.month.year, doc.month.month);
+      const selectionsByMonth = {};
       Object.entries(selections).forEach(([date, choice]) => {
-        if (choice === 'RUNRUN') {
-          // 런런(2시간 조기퇴근)은 휴무가 아니라 그날 근무는 그대로 두고 표시만 얹는 것이라,
-          // 기존 상태/근무조는 건드리지 않는다.
-          if (!doc.schedule[id]) doc.schedule[id] = {};
-          const existing = doc.schedule[id][date] || { status: 'WORK', source: 'AUTO' };
-          doc.schedule[id][date] = Object.assign({}, existing, { runrun: true });
-        } else if (FULL_OFF_TYPES.includes(choice)) {
-          if (!emp.specificOff.includes(date)) emp.specificOff.push(date);
-          emp.specificOffTypes[date] = choice;
-          if (doc.schedule[id] && doc.schedule[id][date] && doc.schedule[id][date].source === 'MANUAL') {
-            delete doc.schedule[id][date];
-          }
-        } else {
-          const workShift = choice === 'HALF_MORNING' ? 'AFTERNOON' : choice === 'HALF_AFTERNOON' ? 'MORNING' : choice;
-          const halfDayLeave = choice === 'HALF_MORNING' ? 'MORNING' : choice === 'HALF_AFTERNOON' ? 'AFTERNOON' : null;
-          if (!doc.schedule[id]) doc.schedule[id] = {};
-          doc.schedule[id][date] = { status: 'WORK', source: 'MANUAL', shift: workShift, halfDayLeave };
-          emp.specificOff = emp.specificOff.filter((d) => d !== date);
-          if (emp.specificOffTypes) delete emp.specificOffTypes[date];
-        }
+        const [y, m] = date.split('-').map(Number);
+        const key = Model.monthKey(y, m);
+        if (!selectionsByMonth[key]) selectionsByMonth[key] = {};
+        selectionsByMonth[key][date] = choice;
       });
-      emp.specificOff.sort();
-      await save();
+
+      for (const [key, sel] of Object.entries(selectionsByMonth)) {
+        if (key === currentKey) {
+          applyDateSelectionsToDoc(doc, id, sel);
+          await save();
+        } else {
+          const [y, m] = key.split('-').map(Number);
+          const targetDoc = key > currentKey
+            ? await Storage.loadOrCreateMonth(state.store, y, m)
+            : await Storage.loadMonth(state.store, y, m);
+          if (!targetDoc) continue;
+          if (applyDateSelectionsToDoc(targetDoc, id, sel)) {
+            await Storage.saveMonth(state.store, targetDoc);
+          }
+        }
+      }
       renderContent();
     },
     async onRemoveSpecificOff(id, date) {
