@@ -148,6 +148,11 @@ Hyumu.Render = (function () {
       HALF_MORNING: '오전반', HALF_AFTERNOON: '오후반', MORNING: '전', AFTERNOON: '후', RUNRUN: '런런',
       SUBSTITUTE: '대체', JIKGEUN: '직근'
     };
+    // 휴무 갯수 배지에 숫자만 있으면 뭘 눌렀는지 안 보인다(사장님 지시: "내가 클릭한게
+    // 뭔지 알 수 있게 휴/연/체/인 한 글자씩 표현해줘") — 종류별 한 글자 + 순번을 같이 보여준다.
+    const SHORT_LABEL = {
+      PERSONAL: '휴', ANNUAL: '연', CHEDAN: '체', RECOGNIZED: '인', SUBSTITUTE: '대', JIKGEUN: '직'
+    };
     let selectedLeaveType = 'PERSONAL';
     // 이미 저장돼 있는 개인 휴무/근무 지정을 열자마자 보여주고 그 자리에서 바로 수정할 수
     // 있게, 넘겨받은 기존 값으로 미리 채워둔다(사장님 지시: "개인 휴무 날짜 추가를 누르면
@@ -195,7 +200,7 @@ Hyumu.Render = (function () {
         const offCount = offCountByDate[dateStr];
         const pickedBadge = picked
           ? offCount
-            ? `<span class="cc-pick-badge cc-pick-badge-count" title="${MULTI_LABEL[picked]} · ${offCount}번째 휴무">${offCount}</span>`
+            ? `<span class="cc-pick-badge cc-pick-badge-count" title="${MULTI_LABEL[picked]} · ${offCount}번째 휴무">${SHORT_LABEL[picked] || ''}${offCount}</span>`
             : `<span class="cc-pick-badge">${MULTI_LABEL[picked]}</span>`
           : '';
         cells.push(`<button type="button" class="cc-day${isToday ? ' cc-today' : ''}${isRangeStart ? ' cc-range-start' : ''}${pickedClass}" data-date="${dateStr}">${d}${pickedBadge}</button>`);
@@ -356,7 +361,7 @@ Hyumu.Render = (function () {
         btn.className = `cc-day${wasToday ? ' cc-today' : ''}${picked ? ` cc-picked cc-picked-${picked}` : ''}`;
         const badge = picked
           ? offCount
-            ? `<span class="cc-pick-badge cc-pick-badge-count" title="${MULTI_LABEL[picked]} · ${offCount}번째 휴무">${offCount}</span>`
+            ? `<span class="cc-pick-badge cc-pick-badge-count" title="${MULTI_LABEL[picked]} · ${offCount}번째 휴무">${SHORT_LABEL[picked] || ''}${offCount}</span>`
             : `<span class="cc-pick-badge">${MULTI_LABEL[picked]}</span>`
           : '';
         btn.innerHTML = `${dayNum}${badge}`;
