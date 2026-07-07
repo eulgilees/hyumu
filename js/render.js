@@ -165,9 +165,10 @@ Hyumu.Render = (function () {
     const holidayOptions = docHolidays || [];
     let selectedSubstituteHoliday = holidayOptions.length > 0 ? holidayOptions[0].date : null;
     // 근무표 짤 때 휴무 갯수를 직접 세니까(사장님 지시: "우리는 근무할 떄 휴무 갯수를 세거든"),
-    // 실제 하루 전체를 쉬는 종류(휴무/연차/체단/인정/대체)만 고른 순서대로 번호를 매겨 배지에
-    // 보여준다 — 오전/오후 확정, 반차, 런런은 하루를 통째로 쉬는 게 아니라서 갯수에서 뺀다.
-    const OFF_COUNT_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED', 'SUBSTITUTE', 'JIKGEUN'];
+    // "휴무"로 고른 날짜만 순서대로 번호를 매겨 배지에 보여준다 — 연차/체단/인정/대체/직근은
+    // 별도로 관리되는 항목이라 이 휴무 갯수에는 넣지 않는다(사장님 지시: "휴무갯수에는 휴무만
+    // 포함해줘. 체단이랑 이런것까지 휴무로 포함해서 세지 말구").
+    const OFF_COUNT_TYPES = ['PERSONAL'];
 
     const popup = document.createElement('div');
     popup.className = 'custom-calendar-popup';
