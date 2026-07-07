@@ -121,7 +121,8 @@ Hyumu.Model = (function () {
     ANNUAL: '연차',
     CHEDAN: '체단',
     RECOGNIZED: '인정',
-    SUBSTITUTE: '대체휴일'
+    SUBSTITUTE: '대체휴일',
+    JIKGEUN: '직근'
   };
 
   function createEmployee(id, name) {

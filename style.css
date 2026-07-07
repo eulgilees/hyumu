@@ -503,6 +503,11 @@ button {
   color: #b3540a;
 }
 
+.cc-day.cc-picked-JIKGEUN {
+  background: #e2e8f0;
+  color: #334155;
+}
+
 .cc-substitute-row {
   display: flex;
   align-items: center;

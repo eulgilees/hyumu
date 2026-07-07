@@ -131,7 +131,7 @@ Hyumu.Render = (function () {
     // 두번누르면 오전 세번 누르면 오후"), 나머지(연차/체단/인정/오전반차/오후반차/런런)는 런런처럼
     // 한 번 누르면 그 항목으로 설정, 두 번 누르면 바로 해제되는 단순 토글이다(사장님 지시:
     // "휴무 제외하고는 런런처럼 한 번 눌렀을 때 해당 메뉴만 설정되고 두번 눌렀을 때 해제").
-    const TOGGLE_ONLY_TYPES = ['ANNUAL', 'CHEDAN', 'RECOGNIZED', 'HALF_MORNING', 'HALF_AFTERNOON', 'RUNRUN', 'SUBSTITUTE'];
+    const TOGGLE_ONLY_TYPES = ['ANNUAL', 'CHEDAN', 'RECOGNIZED', 'HALF_MORNING', 'HALF_AFTERNOON', 'RUNRUN', 'SUBSTITUTE', 'JIKGEUN'];
     const LEAVE_TYPE_BUTTONS = [
       { key: 'PERSONAL', label: '휴무' },
       { key: 'ANNUAL', label: '연차' },
@@ -140,12 +140,13 @@ Hyumu.Render = (function () {
       { key: 'HALF_MORNING', label: '오전반차' },
       { key: 'HALF_AFTERNOON', label: '오후반차' },
       { key: 'RUNRUN', label: '런런 (2시간 조기퇴근)' },
-      { key: 'SUBSTITUTE', label: '대체 (공휴일 대체휴일)' }
+      { key: 'SUBSTITUTE', label: '대체 (공휴일 대체휴일)' },
+      { key: 'JIKGEUN', label: '직근 (노조교육)' }
     ];
     const MULTI_LABEL = {
       PERSONAL: '휴', ANNUAL: '연차', CHEDAN: '체단', RECOGNIZED: '인정',
       HALF_MORNING: '오전반', HALF_AFTERNOON: '오후반', MORNING: '전', AFTERNOON: '후', RUNRUN: '런런',
-      SUBSTITUTE: '대체'
+      SUBSTITUTE: '대체', JIKGEUN: '직근'
     };
     let selectedLeaveType = 'PERSONAL';
     // 이미 저장돼 있는 개인 휴무/근무 지정을 열자마자 보여주고 그 자리에서 바로 수정할 수
@@ -161,7 +162,7 @@ Hyumu.Render = (function () {
     // 근무표 짤 때 휴무 갯수를 직접 세니까(사장님 지시: "우리는 근무할 떄 휴무 갯수를 세거든"),
     // 실제 하루 전체를 쉬는 종류(휴무/연차/체단/인정/대체)만 고른 순서대로 번호를 매겨 배지에
     // 보여준다 — 오전/오후 확정, 반차, 런런은 하루를 통째로 쉬는 게 아니라서 갯수에서 뺀다.
-    const OFF_COUNT_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED', 'SUBSTITUTE'];
+    const OFF_COUNT_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED', 'SUBSTITUTE', 'JIKGEUN'];
 
     const popup = document.createElement('div');
     popup.className = 'custom-calendar-popup';

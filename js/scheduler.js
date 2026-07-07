@@ -18,7 +18,7 @@ Hyumu.Scheduler = (function () {
   // 대체휴일을 달력에서 직접 날짜를 골라 잠그면(사장님 지시: "대체 누르고 휴무 선택하면 며칠
   // 빨간날 대체를 선택하는 건지 추가") 이미 그 자체로 보상이 끝난 것이므로 연차/인정과 똑같이
   // 취급한다.
-  const EXEMPT_LEAVE_TYPES = ['ANNUAL', 'RECOGNIZED', 'SUBSTITUTE'];
+  const EXEMPT_LEAVE_TYPES = ['ANNUAL', 'RECOGNIZED', 'SUBSTITUTE', 'JIKGEUN'];
   function isExemptLockedOff(emp, date, schedule) {
     const cell = schedule[emp.id][date];
     if (!cell || cell.status !== 'OFF' || cell.source !== 'BASE') return false;

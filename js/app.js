@@ -48,7 +48,7 @@ Hyumu.App = (function () {
     return await Storage.loadMonth(state.store, year, month);
   }
 
-  const FULL_OFF_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED', 'SUBSTITUTE'];
+  const FULL_OFF_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED', 'SUBSTITUTE', 'JIKGEUN'];
 
   // 달력에서 고른 한 달치 선택({날짜: 선택값})을 실제로 그 날짜가 속한 달 문서(targetDoc)에
   // 반영한다. 반차(HALF_MORNING/HALF_AFTERNOON)는 오전/오후 중 절반만 쉬는 것이므로 하루
