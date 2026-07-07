@@ -184,6 +184,7 @@ Hyumu.Model = (function () {
       minStaffByDate: {},
       maxConsecutiveWorkDays: 5,
       minRestPerWeekWindow: false,
+      requireBackToBackOff: false,
       minMorningStaff: 0,
       minAfternoonStaff: 0,
       minStaffByCorner: {},

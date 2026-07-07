@@ -624,6 +624,9 @@ Hyumu.Render = (function () {
           <label><input type="checkbox" id="rule-week-rest" ${rules.minRestPerWeekWindow ? 'checked' : ''}> 매 7일마다 최소 1일 휴무 보장${ruleBadge('required')}</label>
         </div>
         <div class="field-row">
+          <label><input type="checkbox" id="rule-back-to-back-off" ${rules.requireBackToBackOff ? 'checked' : ''}> 매달 최소 1회, 이틀 이상 연속 휴무 보장${ruleBadge('required')}</label>
+        </div>
+        <div class="field-row">
           <label><input type="checkbox" id="rule-avoid-alternating" ${rules.avoidAlternatingShift ? 'checked' : ''}> 퐁당퐁당 방지 (전후전후처럼 매일 근무조 바뀌지 않게 같은 조로 몰아주기)${ruleBadge('recommended')}</label>
         </div>
         <p class="hint">체크하면 최우선으로 같은 조로 몰아주려 하지만, 다른 필수 조건과 겹치면 양보될 수 있어요.</p>
@@ -734,6 +737,9 @@ Hyumu.Render = (function () {
     );
     container.querySelector('#rule-week-rest').addEventListener('change', (e) =>
       handlers.onUpdateRule('minRestPerWeekWindow', e.target.checked)
+    );
+    container.querySelector('#rule-back-to-back-off').addEventListener('change', (e) =>
+      handlers.onUpdateRule('requireBackToBackOff', e.target.checked)
     );
     container.querySelectorAll('.rule-weekday-override').forEach((input) =>
       input.addEventListener('change', () =>

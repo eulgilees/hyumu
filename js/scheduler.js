@@ -229,6 +229,13 @@ Hyumu.Scheduler = (function () {
     // 채운다.
     enforceTargetOffDays(schedule, employees, dates, targetByEmpId, cornerMinStaffGlobal, personalCapByEmpId, conflicts);
 
+    // 매달 최소 한 번은 이틀 이상 붙여 쉬어야 한다(사장님 지시: "한달에 이틀 이상 붙여쉬는 날이
+    // 한 번은 있어야해 최소 이틀이야"). 목표 휴무일수(넘버원 원칙)는 절대 안 건드리고, 이미
+    // 배정된 휴무 중 하나의 날짜만 옮겨서 다른 휴무 바로 옆에 붙인다.
+    if (rules.requireBackToBackOff) {
+      enforceBackToBackRest(schedule, employees, dates, cornerMinStaffGlobal, conflicts);
+    }
+
     // 마지막으로, 목표 휴무일수 예산 안에서도 도저히 상한을 지킬 수 없었던 연속근무 구간을
     // 찾아 오류로 표시한다(사장님 지시: "강제휴무란 있을 수 없어... 길게 근무하는 경우 오류를
     // 뜨게 해줘야해") — 스케줄을 억지로 고치지 않고 있는 그대로 보고만 한다.
@@ -784,6 +791,72 @@ Hyumu.Scheduler = (function () {
           date: null,
           type: 'IMBALANCE_NOTICE',
           message: `${emp.name}님은 목표 휴무일수(${target}일)보다 ${surplus}일 더 쉬고 있는데, 확정 휴무/강제 휴무라 근무로 되돌릴 수 없습니다.`,
+          employeeIds: [emp.id]
+        });
+      }
+    });
+  }
+
+  // 매달 최소 한 번은 이틀 이상 연속 휴무가 있어야 한다. 목표 휴무일수 총량은 절대 바꾸지
+  // 않고(넘버원 원칙), 이미 배정된 재량 휴무(AUTO_FAIRNESS) 하나를 다른 휴무 바로 옆 날짜로
+  // "옮겨서" 붙인다 — 그 날짜가 원래 근무일이었으면 이 사람은 그날 근무로, 대신 그 옆 날은
+  // 휴무로 바뀌는 식이라 총 휴무일수는 그대로다. BASE/MANUAL(연차·개인휴무 등 확정 휴무)은
+  // 옮기지 않는다 — 확정된 휴무를 건드리면 안 된다는 원칙과 같다. 옮길 곳이 전혀 없으면(코너
+  // 최소인원이 항상 걸리는 등) 오류로 표시하고 넘어간다(사장님 지시: "도저히 근무를 못
+  // 맞추겠으면 오류로 하자").
+  function enforceBackToBackRest(schedule, employees, dates, cornerMinStaffGlobal, conflicts) {
+    function cornerWorkingWithout(emp, date) {
+      return Model.employeeCorners(emp).every((c) => {
+        const need = cornerMinStaffGlobal[c];
+        if (!need) return true;
+        const working = employees.filter((e) => e.id !== emp.id && Model.employeeCorners(e).includes(c) && schedule[e.id][date].status === 'WORK').length;
+        return working >= need;
+      });
+    }
+
+    employees.forEach((emp) => {
+      const empSchedule = schedule[emp.id];
+      const offDates = dates.filter((d) => empSchedule[d].status === 'OFF');
+      if (offDates.length < 2) {
+        conflicts.push({
+          date: null,
+          type: 'IMBALANCE_NOTICE',
+          message: `${emp.name}님은 이번 달 휴무일수가 너무 적어 이틀 이상 연속 휴무를 만들 수 없습니다.`,
+          employeeIds: [emp.id]
+        });
+        return;
+      }
+      const offSet = new Set(offDates);
+      const hasBlock = dates.some((d, i) => i < dates.length - 1 && offSet.has(d) && offSet.has(dates[i + 1]));
+      if (hasBlock) return;
+
+      let fixed = false;
+      for (const sourceDate of offDates) {
+        if (fixed) break;
+        if (empSchedule[sourceDate].source !== 'AUTO_FAIRNESS') continue;
+        for (const anchorDate of offDates) {
+          if (fixed || anchorDate === sourceDate) continue;
+          const anchorIdx = dates.indexOf(anchorDate);
+          for (const neighborIdx of [anchorIdx - 1, anchorIdx + 1]) {
+            if (neighborIdx < 0 || neighborIdx >= dates.length) continue;
+            const neighborDate = dates[neighborIdx];
+            if (offSet.has(neighborDate) || neighborDate === sourceDate) continue;
+            const neighborCell = empSchedule[neighborDate];
+            if (neighborCell.status !== 'WORK' || neighborCell.source !== 'AUTO') continue;
+            if (!cornerWorkingWithout(emp, neighborDate)) continue;
+            setCell(schedule, emp.id, sourceDate, 'WORK', 'AUTO');
+            setCell(schedule, emp.id, neighborDate, 'OFF', 'AUTO_FAIRNESS');
+            fixed = true;
+            break;
+          }
+        }
+      }
+
+      if (!fixed) {
+        conflicts.push({
+          date: null,
+          type: 'IMBALANCE_NOTICE',
+          message: `${emp.name}님은 이번 달 이틀 이상 연속 휴무를 만들 수 없습니다 — 다른 필수 조건 때문에 휴무를 옮길 자리가 없습니다.`,
           employeeIds: [emp.id]
         });
       }
