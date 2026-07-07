@@ -117,7 +117,7 @@ Hyumu.Render = (function () {
     return sel;
   }
 
-  function openCustomCalendar(anchorEl, initialDateStr, onSelect, onSelectRange, onMultiSelect, initialSelections) {
+  function openCustomCalendar(anchorEl, initialDateStr, onSelect, onSelectRange, onMultiSelect, initialSelections, initialSubstituteFor, docHolidays) {
     closeCalendarPopup();
     const today = new Date();
     let [y, m] = initialDateStr
@@ -131,7 +131,7 @@ Hyumu.Render = (function () {
     // 두번누르면 오전 세번 누르면 오후"), 나머지(연차/체단/인정/오전반차/오후반차/런런)는 런런처럼
     // 한 번 누르면 그 항목으로 설정, 두 번 누르면 바로 해제되는 단순 토글이다(사장님 지시:
     // "휴무 제외하고는 런런처럼 한 번 눌렀을 때 해당 메뉴만 설정되고 두번 눌렀을 때 해제").
-    const TOGGLE_ONLY_TYPES = ['ANNUAL', 'CHEDAN', 'RECOGNIZED', 'HALF_MORNING', 'HALF_AFTERNOON', 'RUNRUN'];
+    const TOGGLE_ONLY_TYPES = ['ANNUAL', 'CHEDAN', 'RECOGNIZED', 'HALF_MORNING', 'HALF_AFTERNOON', 'RUNRUN', 'SUBSTITUTE'];
     const LEAVE_TYPE_BUTTONS = [
       { key: 'PERSONAL', label: '휴무' },
       { key: 'ANNUAL', label: '연차' },
@@ -139,17 +139,25 @@ Hyumu.Render = (function () {
       { key: 'RECOGNIZED', label: '인정' },
       { key: 'HALF_MORNING', label: '오전반차' },
       { key: 'HALF_AFTERNOON', label: '오후반차' },
-      { key: 'RUNRUN', label: '런런 (2시간 조기퇴근)' }
+      { key: 'RUNRUN', label: '런런 (2시간 조기퇴근)' },
+      { key: 'SUBSTITUTE', label: '대체 (공휴일 대체휴일)' }
     ];
     const MULTI_LABEL = {
       PERSONAL: '휴', ANNUAL: '연차', CHEDAN: '체단', RECOGNIZED: '인정',
-      HALF_MORNING: '오전반', HALF_AFTERNOON: '오후반', MORNING: '전', AFTERNOON: '후', RUNRUN: '런런'
+      HALF_MORNING: '오전반', HALF_AFTERNOON: '오후반', MORNING: '전', AFTERNOON: '후', RUNRUN: '런런',
+      SUBSTITUTE: '대체'
     };
     let selectedLeaveType = 'PERSONAL';
     // 이미 저장돼 있는 개인 휴무/근무 지정을 열자마자 보여주고 그 자리에서 바로 수정할 수
     // 있게, 넘겨받은 기존 값으로 미리 채워둔다(사장님 지시: "개인 휴무 날짜 추가를 누르면
     // 기존게 안 뜨는데 뜨게 해줬으면 좋겠어. 기존거도 수정가능하게").
     const multiSelections = Object.assign({}, initialSelections);
+    // 대체휴일은 "이번 휴무가 며칠 빨간날(공휴일) 근무를 대체하는지"를 같이 골라야 한다(사장님
+    // 지시: "대체 누르고 휴무 선택하면 며칠 빨간날 대체를 선택하는 건지 추가") — 날짜별로 어느
+    // 공휴일을 대체하는지 별도 맵으로 들고 있다가 완료 시 함께 넘긴다.
+    const substituteFor = Object.assign({}, initialSubstituteFor);
+    const holidayOptions = docHolidays || [];
+    let selectedSubstituteHoliday = holidayOptions.length > 0 ? holidayOptions[0].date : null;
 
     const popup = document.createElement('div');
     popup.className = 'custom-calendar-popup';
@@ -182,6 +190,16 @@ Hyumu.Render = (function () {
             ${LEAVE_TYPE_BUTTONS.map((t) => `<button type="button" class="cc-leave-type-btn${selectedLeaveType === t.key ? ' active' : ''}" data-type="${t.key}">${t.label}</button>`).join('')}
           </div>`
         : '';
+      const substituteHolidayPicker = onMultiSelect && !rangeMode && selectedLeaveType === 'SUBSTITUTE'
+        ? holidayOptions.length > 0
+          ? `<div class="cc-substitute-row">
+              <label class="hint">며칠 빨간날 대체인지</label>
+              <select id="cc-substitute-holiday">
+                ${holidayOptions.map((h) => `<option value="${h.date}" ${selectedSubstituteHoliday === h.date ? 'selected' : ''}>${h.date} (${esc(h.name)})</option>`).join('')}
+              </select>
+            </div>`
+          : '<p class="cc-range-hint">이번 달에 공휴일이 없습니다.</p>'
+        : '';
       const multiSelectedCount = Object.keys(multiSelections).length;
       popup.innerHTML = `
         <div class="cc-header">
@@ -193,6 +211,7 @@ Hyumu.Render = (function () {
           ${Model.WEEKDAY_LABELS.map((l) => `<span class="cc-wd">${l}</span>`).join('')}
         </div>
         ${leaveTypeButtons}
+        ${substituteHolidayPicker}
         <div class="cc-grid">${cells.join('')}</div>
         ${onSelectRange ? `<label class="cc-range-toggle"><input type="checkbox" id="cc-range-mode" ${rangeMode ? 'checked' : ''}> 기간으로 선택 (여러 날짜 한번에)</label>` : ''}
         ${rangeHint}
@@ -221,7 +240,7 @@ Hyumu.Render = (function () {
       if (doneBtn) {
         doneBtn.addEventListener('click', () => {
           if (Object.keys(multiSelections).length === 0) return;
-          onMultiSelect({ ...multiSelections });
+          onMultiSelect({ ...multiSelections }, { ...substituteFor });
           closeCalendarPopup();
         });
       }
@@ -229,7 +248,14 @@ Hyumu.Render = (function () {
       if (resetBtn) {
         resetBtn.addEventListener('click', () => {
           Object.keys(multiSelections).forEach((k) => delete multiSelections[k]);
+          Object.keys(substituteFor).forEach((k) => delete substituteFor[k]);
           renderMonth();
+        });
+      }
+      const substituteHolidaySelect = popup.querySelector('#cc-substitute-holiday');
+      if (substituteHolidaySelect) {
+        substituteHolidaySelect.addEventListener('change', () => {
+          selectedSubstituteHoliday = substituteHolidaySelect.value;
         });
       }
       const rangeToggle = popup.querySelector('#cc-range-mode');
@@ -263,8 +289,10 @@ Hyumu.Render = (function () {
             const current = multiSelections[date];
             if (!current) {
               multiSelections[date] = selectedLeaveType;
+              if (selectedLeaveType === 'SUBSTITUTE') substituteFor[date] = selectedSubstituteHoliday;
             } else if (TOGGLE_ONLY_TYPES.includes(current)) {
               delete multiSelections[date];
+              delete substituteFor[date];
             } else if (current === 'PERSONAL') {
               multiSelections[date] = 'MORNING';
             } else if (current === 'MORNING') {
@@ -478,7 +506,12 @@ Hyumu.Render = (function () {
             ${emp.specificOff.length > 0 ? `<button type="button" class="btn-clear-specific-off" data-id="${emp.id}">전체 삭제</button>` : ''}
           </div>
           <div class="date-chips">
-            ${emp.specificOff.map((d) => `<span class="chip">${d} (${esc(Model.LEAVE_TYPES[Model.leaveTypeOf(emp, d)])}) <button type="button" class="chip-remove" data-id="${emp.id}" data-date="${d}">×</button></span>`).join('')}
+            ${emp.specificOff.map((d) => {
+              const leaveType = Model.leaveTypeOf(emp, d);
+              const subHoliday = leaveType === 'SUBSTITUTE' && emp.substituteFor ? emp.substituteFor[d] : null;
+              const subNote = subHoliday ? ` · ${subHoliday} 대체` : '';
+              return `<span class="chip">${d} (${esc(Model.LEAVE_TYPES[leaveType])}${esc(subNote)}) <button type="button" class="chip-remove" data-id="${emp.id}" data-date="${d}">×</button></span>`;
+            }).join('')}
           </div>
         </div>
         ${holidayChoiceHtml}
@@ -563,13 +596,14 @@ Hyumu.Render = (function () {
       btn.addEventListener('click', () => {
         const emp = doc.employees.find((e) => e.id === btn.dataset.id);
         const openToDate = Model.dateISO(doc.month.year, doc.month.month, 1);
+        const docHolidays = dates.filter((d) => Model.holidayName(d)).map((d) => ({ date: d, name: Model.holidayName(d) }));
         openCustomCalendar(btn, openToDate, (dateStr) => {
           handlers.onAddSpecificOff(btn.dataset.id, dateStr, 'PERSONAL');
         }, (startDate, endDate) => {
           handlers.onAddSpecificOffRange(btn.dataset.id, startDate, endDate, 'PERSONAL');
-        }, (selections) => {
-          handlers.onApplyDateSelections(btn.dataset.id, selections);
-        }, emp ? buildInitialCalendarSelections(emp, doc) : {});
+        }, (selections, substituteFor) => {
+          handlers.onApplyDateSelections(btn.dataset.id, selections, substituteFor);
+        }, emp ? buildInitialCalendarSelections(emp, doc) : {}, emp && emp.substituteFor, docHolidays);
       })
     );
     container.querySelectorAll('.chip-remove').forEach((btn) =>

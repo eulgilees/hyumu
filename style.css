@@ -477,6 +477,19 @@ button {
   color: #5b3fa0;
 }
 
+.cc-day.cc-picked-SUBSTITUTE {
+  background: #fde4d1;
+  color: #b3540a;
+}
+
+.cc-substitute-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
 .cc-range-toggle {
   display: flex;
   align-items: center;

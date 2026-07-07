@@ -48,14 +48,16 @@ Hyumu.App = (function () {
     return await Storage.loadMonth(state.store, year, month);
   }
 
-  const FULL_OFF_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED'];
+  const FULL_OFF_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED', 'SUBSTITUTE'];
 
   // 달력에서 고른 한 달치 선택({날짜: 선택값})을 실제로 그 날짜가 속한 달 문서(targetDoc)에
   // 반영한다. 반차(HALF_MORNING/HALF_AFTERNOON)는 오전/오후 중 절반만 쉬는 것이므로 하루
   // 전체를 잠그는 specificOff가 아니라, 일하는 나머지 반쪽 근무를 확정하는 WORK 셀로 저장하고
-  // halfDayLeave에 어느 쪽이 반차인지 표시만 남긴다. 반환값은 그 직원이 targetDoc에 실제로
-  // 있어서 반영됐는지 여부.
-  function applyDateSelectionsToDoc(targetDoc, id, selections) {
+  // halfDayLeave에 어느 쪽이 반차인지 표시만 남긴다. 대체휴일(SUBSTITUTE)은 며칠 공휴일을
+  // 대체하는지 emp.substituteFor에 함께 기록한다(사장님 지시: "대체 누르고 휴무 선택하면 며칠
+  // 빨간날 대체를 선택하는 건지 추가"). 반환값은 그 직원이 targetDoc에 실제로 있어서
+  // 반영됐는지 여부.
+  function applyDateSelectionsToDoc(targetDoc, id, selections, substituteFor) {
     const emp = targetDoc.employees.find((e) => e.id === id);
     if (!emp) return false;
     if (!emp.specificOffTypes) emp.specificOffTypes = {};
@@ -69,6 +71,10 @@ Hyumu.App = (function () {
       } else if (FULL_OFF_TYPES.includes(choice)) {
         if (!emp.specificOff.includes(date)) emp.specificOff.push(date);
         emp.specificOffTypes[date] = choice;
+        if (choice === 'SUBSTITUTE' && substituteFor && substituteFor[date]) {
+          if (!emp.substituteFor) emp.substituteFor = {};
+          emp.substituteFor[date] = substituteFor[date];
+        }
         if (targetDoc.schedule[id][date] && targetDoc.schedule[id][date].source === 'MANUAL') {
           delete targetDoc.schedule[id][date];
         }
@@ -294,19 +300,25 @@ Hyumu.App = (function () {
     // — 날짜별로 그 날짜가 속한 달의 문서를 찾아 각각 반영한다. 지금 보는 달은 이미 메모리에
     // 있는 doc/save()를 그대로 쓰고, 다른 달은 그 달 문서를 불러와(없으면 미래 달만 새로
     // 만들어) 저장한다.
-    async onApplyDateSelections(id, selections) {
+    async onApplyDateSelections(id, selections, substituteFor) {
       const currentKey = Model.monthKey(doc.month.year, doc.month.month);
       const selectionsByMonth = {};
+      const substituteForByMonth = {};
       Object.entries(selections).forEach(([date, choice]) => {
         const [y, m] = date.split('-').map(Number);
         const key = Model.monthKey(y, m);
         if (!selectionsByMonth[key]) selectionsByMonth[key] = {};
         selectionsByMonth[key][date] = choice;
+        if (substituteFor && substituteFor[date]) {
+          if (!substituteForByMonth[key]) substituteForByMonth[key] = {};
+          substituteForByMonth[key][date] = substituteFor[date];
+        }
       });
 
       for (const [key, sel] of Object.entries(selectionsByMonth)) {
+        const subFor = substituteForByMonth[key];
         if (key === currentKey) {
-          applyDateSelectionsToDoc(doc, id, sel);
+          applyDateSelectionsToDoc(doc, id, sel, subFor);
           await save();
         } else {
           const [y, m] = key.split('-').map(Number);
@@ -314,7 +326,7 @@ Hyumu.App = (function () {
             ? await Storage.loadOrCreateMonth(state.store, y, m)
             : await Storage.loadMonth(state.store, y, m);
           if (!targetDoc) continue;
-          if (applyDateSelectionsToDoc(targetDoc, id, sel)) {
+          if (applyDateSelectionsToDoc(targetDoc, id, sel, subFor)) {
             await Storage.saveMonth(state.store, targetDoc);
           }
         }
@@ -326,6 +338,7 @@ Hyumu.App = (function () {
       if (!emp) return;
       emp.specificOff = emp.specificOff.filter((d) => d !== date);
       if (emp.specificOffTypes) delete emp.specificOffTypes[date];
+      if (emp.substituteFor) delete emp.substituteFor[date];
       await save();
       renderContent();
     },
@@ -334,6 +347,7 @@ Hyumu.App = (function () {
       if (!emp) return;
       emp.specificOff = [];
       emp.specificOffTypes = {};
+      emp.substituteFor = {};
       await save();
       renderContent();
     },
