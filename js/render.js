@@ -3,6 +3,12 @@ window.Hyumu = window.Hyumu || {};
 Hyumu.Render = (function () {
   const Model = Hyumu.Model;
 
+  // 결과 캘린더 칸이 좁아서 "체단"/"연차"처럼 두 글자면 비좁다(사장님 지시: "체단은 체
+  // 연차는 연 이런식으로 한 글자로 나오게 해줘") — 휴무 종류를 셀에 표시할 땐 항상 한 글자로.
+  const LEAVE_TYPE_SHORT_LABEL = {
+    PERSONAL: '휴', ANNUAL: '연', CHEDAN: '체', RECOGNIZED: '인', SUBSTITUTE: '대', JIKGEUN: '직'
+  };
+
   function esc(str) {
     return String(str).replace(/[&<>"']/g, (c) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -983,7 +989,7 @@ Hyumu.Render = (function () {
         if (cell.status === 'OFF') {
           offCount++;
           const leaveType = isPersonalLock ? Model.leaveTypeOf(emp, d) : null;
-          text = leaveType && leaveType !== 'PERSONAL' ? esc(Model.LEAVE_TYPES[leaveType]) : '휴';
+          text = leaveType && leaveType !== 'PERSONAL' ? esc(LEAVE_TYPE_SHORT_LABEL[leaveType] || Model.LEAVE_TYPES[leaveType]) : '휴';
           statusClass = ' cell-off';
         } else {
           text = cell.shift === 'MORNING' ? '전' : cell.shift === 'AFTERNOON' ? '후' : '';
