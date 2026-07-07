@@ -322,7 +322,7 @@ Hyumu.Render = (function () {
             } else {
               delete multiSelections[date];
             }
-            renderMonth();
+            updatePickedUI();
           } else {
             onSelect(btn.dataset.date);
             closeCalendarPopup();
@@ -330,6 +330,49 @@ Hyumu.Render = (function () {
         });
       });
     }
+    // 날짜를 누를 때마다 팝업 전체(달력 42칸 + 버튼줄 + 리스너)를 innerHTML로 통째로
+    // 새로 그리면 브라우저가 매번 다시 그려서 휴무 갯수 표시가 눈에 띄게 늦게 바뀐다(사장님
+    // 지시: "클릭하고 휴무가 변동될 때마다 숫자가 빠르게 변화되어야해"). 그래서 날짜 클릭
+    // 한 건으로는 바뀐 셀들의 배지/클래스와 상단 숫자만 직접 갱신하고, 전체 다시 그리기는
+    // 월 이동·초기화·완료버튼 개수가 0→1로 바뀌는 등 레이아웃 자체가 바뀔 때만 한다.
+    function updatePickedUI() {
+      const offCountByDate = {};
+      let offCounter = 0;
+      Object.keys(multiSelections).forEach((d) => {
+        if (OFF_COUNT_TYPES.includes(multiSelections[d])) {
+          offCounter++;
+          offCountByDate[d] = offCounter;
+        }
+      });
+      popup.querySelectorAll('.cc-day[data-date]').forEach((btn) => {
+        const dateStr = btn.dataset.date;
+        const picked = multiSelections[dateStr];
+        const offCount = offCountByDate[dateStr];
+        const dayNum = Number(dateStr.slice(-2));
+        const wasToday = btn.classList.contains('cc-today');
+        btn.className = `cc-day${wasToday ? ' cc-today' : ''}${picked ? ` cc-picked cc-picked-${picked}` : ''}`;
+        const badge = picked
+          ? offCount
+            ? `<span class="cc-pick-badge cc-pick-badge-count" title="${MULTI_LABEL[picked]} · ${offCount}번째 휴무">${offCount}</span>`
+            : `<span class="cc-pick-badge">${MULTI_LABEL[picked]}</span>`
+          : '';
+        btn.innerHTML = `${dayNum}${badge}`;
+      });
+      const hintEl = popup.querySelector('.cc-off-count-hint');
+      if (hintEl) hintEl.textContent = `휴무 ${offCounter}일 선택됨`;
+      const multiSelectedCount = Object.keys(multiSelections).length;
+      const doneBtn = popup.querySelector('#cc-done-btn');
+      const resetBtn = popup.querySelector('#cc-reset-btn');
+      // 완료/초기화 버튼이 나타나거나(0개 → 1개) 사라지는(1개 → 0개) 경계에서는 버튼 자체가
+      // 없거나 생겨야 하니 그때만 전체를 다시 그린다 — 그 외엔 항상 이 빠른 경로만 탄다.
+      if ((multiSelectedCount > 0) !== !!resetBtn || !doneBtn) {
+        renderMonth();
+        return;
+      }
+      doneBtn.textContent = `완료 (${multiSelectedCount})`;
+      doneBtn.disabled = multiSelectedCount === 0;
+    }
+
     renderMonth();
 
     popup.style.position = 'fixed';
