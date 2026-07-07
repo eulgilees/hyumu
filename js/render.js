@@ -170,9 +170,12 @@ Hyumu.Render = (function () {
     openCalendarPopup = popup;
 
     function renderMonth() {
+      // 날짜 순서대로 번호를 매겨야 한다(사장님 지시: "뒤에걸 먼저 누르고 앞에 일자를
+      // 눌렀을 때 앞에 일자가 자동으로 2로 바뀌었으면 좋겠어") — 클릭한 순서가 아니라
+      // 항상 달력 날짜 순으로 정렬해서 센다.
       const offCountByDate = {};
       let offCounter = 0;
-      Object.keys(multiSelections).forEach((d) => {
+      Object.keys(multiSelections).sort().forEach((d) => {
         if (OFF_COUNT_TYPES.includes(multiSelections[d])) {
           offCounter++;
           offCountByDate[d] = offCounter;
@@ -338,7 +341,7 @@ Hyumu.Render = (function () {
     function updatePickedUI() {
       const offCountByDate = {};
       let offCounter = 0;
-      Object.keys(multiSelections).forEach((d) => {
+      Object.keys(multiSelections).sort().forEach((d) => {
         if (OFF_COUNT_TYPES.includes(multiSelections[d])) {
           offCounter++;
           offCountByDate[d] = offCounter;
