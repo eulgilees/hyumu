@@ -23,6 +23,42 @@ Hyumu.Scheduler = (function () {
     return EXEMPT_LEAVE_TYPES.includes(Model.leaveTypeOf(emp, date));
   }
 
+  // "직원들이 신청한 휴무 그대로" 화면(자동 배정 알고리즘이 손대기 전)에서 어디가 인원 부족인지
+  // 검사한다. 이 시점의 schedule은 BASE(고정/개인 휴무)와 MANUAL(직접 지정)만 반영돼 있고
+  // 나머지는 전부 근무로 취급되므로, 매장 전체 최소인원과 코너별 최소인원만 체크하면 된다
+  // (목표 휴무일수·연속근무 상한처럼 알고리즘이 맞춰주는 값은 이 "신청 그대로" 화면과는 무관).
+  function computeRawConflicts(rawSchedule, employees, dates, rules, cornerMinStaffGlobal) {
+    const conflicts = [];
+    dates.forEach((date) => {
+      const req = Model.minStaffRequired(rules, date);
+      const working = employees.filter((e) => rawSchedule[e.id][date].status === 'WORK').length;
+      if (working < req) {
+        conflicts.push({
+          date,
+          type: 'MIN_STAFF_VIOLATION',
+          message: `${date}: 신청된 휴무만으로도 매장 최소 근무 인원(${req}명)에 ${req - working}명 모자랍니다.`,
+          employeeIds: employees.filter((e) => rawSchedule[e.id][date].status === 'OFF').map((e) => e.id)
+        });
+      }
+      Object.keys(cornerMinStaffGlobal).forEach((corner) => {
+        const need = cornerMinStaffGlobal[corner];
+        if (!need) return;
+        const cornerEmployees = employees.filter((e) => Model.employeeCorners(e).includes(corner));
+        if (cornerEmployees.length === 0) return;
+        const cornerWorking = cornerEmployees.filter((e) => rawSchedule[e.id][date].status === 'WORK').length;
+        if (cornerWorking < need) {
+          conflicts.push({
+            date,
+            type: 'CORNER_MIN_STAFF_VIOLATION',
+            message: `${date}: 신청된 휴무만으로도 ${corner} 코너 최소 인원(${need}명)에 ${need - cornerWorking}명 모자랍니다.`,
+            employeeIds: cornerEmployees.filter((e) => rawSchedule[e.id][date].status === 'OFF').map((e) => e.id)
+          });
+        }
+      });
+    });
+    return conflicts;
+  }
+
   // Would giving `emp` a new OFF day on `date` push any of their corners below its own
   // morning+afternoon minimum? Used by the catch-up swap passes so they can't quietly
   // re-violate a corner minimum that Phase 1 already respected while chasing the target
@@ -122,6 +158,8 @@ Hyumu.Scheduler = (function () {
     if (employees.length === 0) {
       doc.schedule = schedule;
       doc.conflicts = conflicts;
+      doc.rawSchedule = schedule;
+      doc.rawConflicts = conflicts;
       return doc;
     }
 
@@ -166,6 +204,21 @@ Hyumu.Scheduler = (function () {
     Object.keys(cornerTotalGlobal).forEach((corner) => {
       cornerAllowedOff[corner] = Math.max(0, cornerTotalGlobal[corner] - (cornerMinStaffGlobal[corner] || 0));
     });
+
+    // 사장님이 원하는 두 번째 결과 화면: "전 직원이 원하는 휴무를 입력한 그대로" 봤을 때 어디서
+    // 인원 부족이 나는지(자동 배정 알고리즘이 아직 손대지 않은 상태). BASE/MANUAL 잠긴 요청만
+    // 반영한 이 시점의 schedule을 그대로 스냅샷 떠서, 여기에만 store/코너 최소인원 위반을
+    // 검사해 별도로 보관한다 — 이후 Phase 1/재조정이 schedule을 계속 고쳐나가도 이 스냅샷은
+    // 그대로 남아 "조정 전" 화면으로 쓰인다.
+    const rawSchedule = {};
+    employees.forEach((emp) => {
+      rawSchedule[emp.id] = {};
+      dates.forEach((d) => {
+        const cell = schedule[emp.id][d];
+        rawSchedule[emp.id][d] = cell ? Object.assign({}, cell) : { status: 'WORK', source: 'AUTO', shift: null };
+      });
+    });
+    const rawConflicts = computeRawConflicts(rawSchedule, employees, dates, rules, cornerMinStaffGlobal);
 
     // Collected across every group so backfillPartLeaders can tell whether pulling a specific
     // 파트장 back to WORK would drop them below their own guaranteed rest-day count, and so a
@@ -245,6 +298,8 @@ Hyumu.Scheduler = (function () {
 
     doc.schedule = schedule;
     doc.conflicts = conflicts;
+    doc.rawSchedule = rawSchedule;
+    doc.rawConflicts = rawConflicts;
     return doc;
   }
 

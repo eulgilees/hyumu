@@ -803,7 +803,7 @@ Hyumu.Render = (function () {
     container.querySelector('#btn-generate').addEventListener('click', () => handlers.onGenerate());
   }
 
-  function renderCalendarScreen(container, doc, handlers) {
+  function renderCalendarScreen(container, doc, handlers, viewMode) {
     const dates = Model.allDatesOfMonth(doc.month.year, doc.month.month);
     const employees = doc.employees;
 
@@ -812,17 +812,26 @@ Hyumu.Render = (function () {
       return;
     }
 
-    const conflictDates = new Set(doc.conflicts.filter((c) => c.date).map((c) => c.date));
+    // 두 가지 결과 화면 중 하나를 보여준다(사장님 지시: "전 직원이 원하는 휴무를 입력했는데
+    // 오류가 나는 그대로의 캘린더하고. 오류를 네가 조정했을 때의 캘린더하고"): "raw"는 신청한
+    // 휴무만 반영하고 아직 알고리즘이 손대지 않은 그대로의 모습(읽기 전용), "adjusted"(기본값)는
+    // 지금까지의 자동 배정 결과. 옛날 문서엔 rawSchedule/rawConflicts가 없을 수 있으니 그럴 땐
+    // 조정된 결과로 대신 보여준다.
+    const isRawView = viewMode === 'raw';
+    const viewSchedule = isRawView ? (doc.rawSchedule || doc.schedule) : doc.schedule;
+    const viewConflicts = isRawView ? (doc.rawConflicts || doc.conflicts) : doc.conflicts;
+
+    const conflictDates = new Set(viewConflicts.filter((c) => c.date).map((c) => c.date));
     const conflictEmpDay = new Set();
-    doc.conflicts.forEach((c) => {
+    viewConflicts.forEach((c) => {
       if (!c.date) return;
       (c.employeeIds || []).forEach((id) => conflictEmpDay.add(`${id}|${c.date}`));
     });
 
-    const banner = doc.conflicts.length > 0 ? `
+    const banner = viewConflicts.length > 0 ? `
       <div class="conflict-banner">
-        <strong>⚠ 이 규칙으로는 배정 불가능한 날짜가 있습니다</strong>
-        <ul>${doc.conflicts.map((c) => `<li>${esc(c.message)}</li>`).join('')}</ul>
+        <strong>⚠ ${isRawView ? '신청한 휴무만으로는 인원이 부족한 날짜가 있습니다' : '이 규칙으로는 배정 불가능한 날짜가 있습니다'}</strong>
+        <ul>${viewConflicts.map((c) => `<li>${esc(c.message)}</li>`).join('')}</ul>
       </div>
     ` : '';
 
@@ -849,7 +858,7 @@ Hyumu.Render = (function () {
     `;
 
     const bodyRows = employees.map((emp) => {
-      const empSchedule = doc.schedule[emp.id] || {};
+      const empSchedule = viewSchedule[emp.id] || {};
       let offCount = 0;
       let morningCount = 0;
       let afternoonCount = 0;
@@ -907,6 +916,11 @@ Hyumu.Render = (function () {
     container.innerHTML = `
       <section class="screen screen-calendar">
         <h2>결과 캘린더</h2>
+        <div class="cal-view-toggle">
+          <button type="button" class="cal-view-btn${isRawView ? '' : ' active'}" data-view="adjusted">자동 조정 결과</button>
+          <button type="button" class="cal-view-btn${isRawView ? ' active' : ''}" data-view="raw">신청 그대로 (조정 전)</button>
+        </div>
+        ${isRawView ? '<p class="hint">이 화면은 직원들이 신청한 휴무만 반영한, 자동 배정 알고리즘이 손대기 전 모습입니다. 읽기 전용이며 여기서는 셀을 수정할 수 없어요.</p>' : ''}
         ${banner}
         <div class="corner-filter-row">
           <span class="hint">코너로 조회</span>
@@ -947,19 +961,24 @@ Hyumu.Render = (function () {
       </section>
     `;
 
+    container.querySelectorAll('.cal-view-btn').forEach((btn) => {
+      btn.addEventListener('click', () => handlers.onToggleCalendarView(btn.dataset.view));
+    });
     container.querySelectorAll('th[data-conflict-date]').forEach((th) => {
       th.addEventListener('click', () => {
         const date = th.dataset.conflictDate;
-        const messages = doc.conflicts.filter((c) => c.date === date).map((c) => c.message);
+        const messages = viewConflicts.filter((c) => c.date === date).map((c) => c.message);
         openConflictPopup(th, date, messages);
       });
     });
-    container.querySelectorAll('.cal-cell').forEach((cell) => {
-      cell.addEventListener('click', () => {
-        if (cell.dataset.locked === '1') return;
-        handlers.onToggleCell(cell.dataset.emp, cell.dataset.date, cell.dataset.status, cell.dataset.shift || null);
+    if (!isRawView) {
+      container.querySelectorAll('.cal-cell').forEach((cell) => {
+        cell.addEventListener('click', () => {
+          if (cell.dataset.locked === '1') return;
+          handlers.onToggleCell(cell.dataset.emp, cell.dataset.date, cell.dataset.status, cell.dataset.shift || null);
+        });
       });
-    });
+    }
     function updateDateSummary() {
       const visibleRows = Array.from(container.querySelectorAll('.cal-row')).filter((row) => row.style.display !== 'none');
       const counts = { OFF: {}, MORNING: {}, AFTERNOON: {} };

@@ -669,6 +669,29 @@ button {
 }
 
 /* Calendar screen */
+.cal-view-toggle {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.cal-view-btn {
+  font-size: 13px;
+  padding: 6px 14px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  background: #f7f7f7;
+  color: #555;
+  cursor: pointer;
+}
+
+.cal-view-btn.active {
+  background: #2d5fb0;
+  border-color: #2d5fb0;
+  color: #fff;
+  font-weight: 700;
+}
+
 .conflict-banner {
   background: #fdecea;
   border: 1px solid #f5c6cb;

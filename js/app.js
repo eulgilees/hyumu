@@ -31,7 +31,7 @@ Hyumu.App = (function () {
 
   async function enterApp(employeeId, store) {
     const now = new Date();
-    state = { year: now.getFullYear(), month: now.getMonth() + 1, screen: 'employees', employeeId, store };
+    state = { year: now.getFullYear(), month: now.getMonth() + 1, screen: 'employees', employeeId, store, calendarView: 'adjusted' };
     doc = await Storage.loadOrCreateMonth(store, state.year, state.month);
 
     subscribeCurrentMonth();
@@ -180,7 +180,7 @@ Hyumu.App = (function () {
     } else if (state.screen === 'rules') {
       Render.renderRulesScreen(contentEl, doc, rulesHandlers);
     } else {
-      Render.renderCalendarScreen(contentEl, doc, calendarHandlers);
+      Render.renderCalendarScreen(contentEl, doc, calendarHandlers, state.calendarView);
     }
   }
 
@@ -435,6 +435,10 @@ Hyumu.App = (function () {
   };
 
   const calendarHandlers = {
+    onToggleCalendarView(view) {
+      state.calendarView = view;
+      renderContent();
+    },
     async onToggleCell(empId, date, currentStatus, currentShift) {
       let next;
       if (currentStatus === 'OFF') {
