@@ -432,6 +432,27 @@ button {
   font-weight: 700;
 }
 
+.cc-pick-badge-count {
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  border-radius: 50%;
+  min-width: 14px;
+  height: 14px;
+  line-height: 14px;
+  text-align: center;
+  padding: 0 2px;
+  bottom: 1px;
+  right: 1px;
+}
+
+.cc-off-count-hint {
+  font-size: 13px;
+  font-weight: 700;
+  color: #2d5fb0;
+  margin: 4px 0 0;
+}
+
 .cc-day.cc-picked-PERSONAL {
   background: #fde8e8;
   color: #c0392b;

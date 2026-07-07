@@ -158,6 +158,10 @@ Hyumu.Render = (function () {
     const substituteFor = Object.assign({}, initialSubstituteFor);
     const holidayOptions = docHolidays || [];
     let selectedSubstituteHoliday = holidayOptions.length > 0 ? holidayOptions[0].date : null;
+    // 근무표 짤 때 휴무 갯수를 직접 세니까(사장님 지시: "우리는 근무할 떄 휴무 갯수를 세거든"),
+    // 실제 하루 전체를 쉬는 종류(휴무/연차/체단/인정/대체)만 고른 순서대로 번호를 매겨 배지에
+    // 보여준다 — 오전/오후 확정, 반차, 런런은 하루를 통째로 쉬는 게 아니라서 갯수에서 뺀다.
+    const OFF_COUNT_TYPES = ['PERSONAL', 'ANNUAL', 'CHEDAN', 'RECOGNIZED', 'SUBSTITUTE'];
 
     const popup = document.createElement('div');
     popup.className = 'custom-calendar-popup';
@@ -165,6 +169,14 @@ Hyumu.Render = (function () {
     openCalendarPopup = popup;
 
     function renderMonth() {
+      const offCountByDate = {};
+      let offCounter = 0;
+      Object.keys(multiSelections).forEach((d) => {
+        if (OFF_COUNT_TYPES.includes(multiSelections[d])) {
+          offCounter++;
+          offCountByDate[d] = offCounter;
+        }
+      });
       const first = new Date(y, m - 1, 1);
       const startWeekday = first.getDay();
       const numDays = Model.daysInMonth(y, m);
@@ -176,7 +188,12 @@ Hyumu.Render = (function () {
         const isRangeStart = rangeMode && rangeStart === dateStr;
         const picked = multiSelections[dateStr];
         const pickedClass = picked ? ` cc-picked cc-picked-${picked}` : '';
-        const pickedBadge = picked ? `<span class="cc-pick-badge">${MULTI_LABEL[picked]}</span>` : '';
+        const offCount = offCountByDate[dateStr];
+        const pickedBadge = picked
+          ? offCount
+            ? `<span class="cc-pick-badge cc-pick-badge-count" title="${MULTI_LABEL[picked]} · ${offCount}번째 휴무">${offCount}</span>`
+            : `<span class="cc-pick-badge">${MULTI_LABEL[picked]}</span>`
+          : '';
         cells.push(`<button type="button" class="cc-day${isToday ? ' cc-today' : ''}${isRangeStart ? ' cc-range-start' : ''}${pickedClass}" data-date="${dateStr}">${d}${pickedBadge}</button>`);
       }
       const rangeHint = !onSelectRange ? '' : rangeMode
@@ -201,12 +218,16 @@ Hyumu.Render = (function () {
           : '<p class="cc-range-hint">이번 달에 공휴일이 없습니다.</p>'
         : '';
       const multiSelectedCount = Object.keys(multiSelections).length;
+      const offCountHint = onMultiSelect && !rangeMode
+        ? `<p class="cc-off-count-hint">휴무 ${offCounter}일 선택됨</p>`
+        : '';
       popup.innerHTML = `
         <div class="cc-header">
           <button type="button" class="cc-nav" id="cc-prev">‹</button>
           <span class="cc-title">${y}년 ${m}월</span>
           <button type="button" class="cc-nav" id="cc-next">›</button>
         </div>
+        ${offCountHint}
         <div class="cc-weekdays">
           ${Model.WEEKDAY_LABELS.map((l) => `<span class="cc-wd">${l}</span>`).join('')}
         </div>
