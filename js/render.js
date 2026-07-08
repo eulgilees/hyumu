@@ -989,7 +989,13 @@ Hyumu.Render = (function () {
         if (cell.status === 'OFF') {
           offCount++;
           const leaveType = isPersonalLock ? Model.leaveTypeOf(emp, d) : null;
-          text = leaveType && leaveType !== 'PERSONAL' ? esc(LEAVE_TYPE_SHORT_LABEL[leaveType] || Model.LEAVE_TYPES[leaveType]) : '휴';
+          // 대체휴일은 "며칠 빨간날 대체인지"가 한눈에 보여야 한다(사장님 지시: "대체일 경우에
+          // 며칠 대체인지가 나와야 하거든... 17대 이런식으로") — 대체 대상 공휴일의 날짜를 앞에 붙인다.
+          const subHolidayDate = leaveType === 'SUBSTITUTE' && emp.substituteFor ? emp.substituteFor[d] : null;
+          const subDay = subHolidayDate ? Number(subHolidayDate.split('-')[2]) : null;
+          text = leaveType === 'SUBSTITUTE'
+            ? esc(`${subDay != null ? subDay : ''}대`)
+            : leaveType && leaveType !== 'PERSONAL' ? esc(LEAVE_TYPE_SHORT_LABEL[leaveType] || Model.LEAVE_TYPES[leaveType]) : '휴';
           statusClass = ' cell-off';
         } else {
           text = cell.shift === 'MORNING' ? '전' : cell.shift === 'AFTERNOON' ? '후' : '';
