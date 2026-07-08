@@ -114,6 +114,9 @@ Hyumu.Scheduler = (function () {
       if (empSchedule) {
         dates.forEach((d) => {
           const cell = empSchedule[d];
+          // 대체공휴일 근무는 수당도 대체휴일도 주지 않는 날이라(사장님 지시: "대체공휴일은
+          // 근무해도 우리는 뭐 안 줘"), 대체휴일 선택 보너스 대상에서 제외한다.
+          if (Model.holidayName(d) === '대체공휴일') return;
           if (cell && cell.status === 'WORK' && Model.holidayName(d) && Model.holidayChoiceOf(emp, empSchedule, d) === 'SUBSTITUTE') count++;
         });
       }

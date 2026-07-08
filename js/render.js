@@ -519,12 +519,24 @@ Hyumu.Render = (function () {
         <div class="specific-off">
           <label class="hint">공휴일 근무 처리 (수당 또는 대체휴일 미리 선택)</label>
           ${holidayDates.map((d) => {
-            const choice = Model.holidayChoiceOf(emp, empSchedule, d);
+            const holidayNm = Model.holidayName(d);
             const cell = empSchedule[d];
             const workNote = cell && cell.status === 'WORK' ? ' · 근무 예정' : cell && cell.status === 'OFF' ? ' · 휴무 예정' : '';
+            // 대체공휴일엔 근무해도 수당/대체휴일을 주지 않는다(사장님 지시: "대체공휴일은 근무해도
+            // 우리는 뭐 안 줘... 대체공휴일은 돈 주거나 대체 휴무 주는 날로 체크하면 안돼") — 이
+            // 날짜는 선택지 자체를 없애고 안내 문구만 보여준다.
+            if (holidayNm === '대체공휴일') {
+              return `
+              <div class="holiday-choice-row">
+                <span>${d} (${esc(holidayNm)}${workNote})</span>
+                <span class="hint">수당/대체휴일 없음</span>
+              </div>
+            `;
+            }
+            const choice = Model.holidayChoiceOf(emp, empSchedule, d);
             return `
             <div class="holiday-choice-row">
-              <span>${d} (${esc(Model.holidayName(d))}${workNote})</span>
+              <span>${d} (${esc(holidayNm)}${workNote})</span>
               <select class="emp-holiday-choice" data-id="${emp.id}" data-date="${d}">
                 <option value="" ${choice === '' ? 'selected' : ''}>미정</option>
                 <option value="PAY" ${choice === 'PAY' ? 'selected' : ''}>수당</option>
